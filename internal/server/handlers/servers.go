@@ -124,7 +124,11 @@ func AddCloudServer(db *gorm.DB, registry *ws.Registry) gin.HandlerFunc {
 			} else {
 				response["ssh_test"] = testOut
 
-				steps, err := ssh.DeployAgent(token, node.Name, true)
+				serverAddr := c.Request.Host
+				if serverAddr == "" {
+					serverAddr = "localhost:8080"
+				}
+				steps, err := ssh.DeployAgent(serverAddr, token, node.Name, true)
 				if err != nil {
 					response["ssh_error"] = fmt.Sprintf("部署失败: %v (steps: %s)", err, steps)
 				} else {
