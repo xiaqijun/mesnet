@@ -1,10 +1,13 @@
 package handlers
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -50,32 +53,74 @@ func GetAgentVersions(db *gorm.DB, registry *ws.Registry) gin.HandlerFunc {
 	}
 }
 
-// UpdateServer triggers the control plane server to self-update.
+// UpdateServer triggers a full update: server binary + frontend.
 func UpdateServer() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		go func() {
-			url := fmt.Sprintf("%s/mesnet-server", ReleaseBase)
-			resp, err := http.Get(url)
+			// 1. Update server binary
+			resp, err := http.Get(fmt.Sprintf("%s/mesnet-server", ReleaseBase))
 			if err != nil {
 				return
 			}
-			defer resp.Body.Close()
 
 			tmpPath := "/tmp/mesnet-server.new"
 			f, _ := os.Create(tmpPath)
 			if f != nil {
 				io.Copy(f, resp.Body)
 				f.Close()
+				resp.Body.Close()
 				os.Chmod(tmpPath, 0755)
 
 				exePath, _ := os.Executable()
 				os.Rename(tmpPath, exePath)
 			}
+
+			// 2. Update frontend
+			webResp, err := http.Get(fmt.Sprintf("%s/mesnet-web.tar.gz", ReleaseBase))
+			if err == nil && webResp.StatusCode == 200 {
+				defer webResp.Body.Close()
+				extractTarGz(webResp.Body, "/etc/mesnet/web")
+			}
+
 			os.Exit(0)
 		}()
 
 		c.JSON(http.StatusOK, gin.H{"status": "restarting"})
 	}
+}
+
+func extractTarGz(r io.Reader, dst string) error {
+	gzr, err := gzip.NewReader(r)
+	if err != nil {
+		return err
+	}
+	defer gzr.Close()
+
+	tr := tar.NewReader(gzr)
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+
+		path := filepath.Join(dst, header.Name)
+
+		switch header.Typeflag {
+		case tar.TypeDir:
+			os.MkdirAll(path, 0755)
+		case tar.TypeReg:
+			os.MkdirAll(filepath.Dir(path), 0755)
+			f, err := os.Create(path)
+			if err == nil {
+				io.Copy(f, tr)
+				f.Close()
+			}
+		}
+	}
+	return nil
 }
 
 // UpdateAgent triggers a self-update on a specific agent.

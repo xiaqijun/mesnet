@@ -68,7 +68,7 @@ export default function Servers() {
 
   const handleDelete = async (id) => {
     if (!confirm('确定删除此节点？关联隧道也会被删除。')) return
-    await api.deleteNode(id)
+    await fetch(`/api/nodes/${id}`, { method: 'DELETE' })
   }
 
   const handleDeploy = async (id) => {
