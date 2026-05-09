@@ -43,7 +43,7 @@ MeshNet/
 ### 控制端 (Linux amd64)
 
 ```bash
-curl -fsSL https://github.com/xiaqijun/mesnet/releases/latest/download/mesnet-server -o /usr/local/bin/mesnet-server && chmod +x /usr/local/bin/mesnet-server && curl -fsSL https://github.com/xiaqijun/mesnet/releases/latest/download/mesnet-web.tar.gz | tar xz -C /etc/mesnet/web && cat > /etc/systemd/system/mesnet-server.service <<'EOF'
+curl -fsSL https://github.com/xiaqijun/mesnet/releases/latest/download/mesnet-server -o /usr/local/bin/mesnet-server && chmod +x /usr/local/bin/mesnet-server && mkdir -p /etc/mesnet/web && curl -fsSL https://github.com/xiaqijun/mesnet/releases/latest/download/mesnet-web.tar.gz | tar xz -C /etc/mesnet/web && cat > /etc/systemd/system/mesnet-server.service <<'EOF'
 [Unit]
 Description=MeshNet Control Plane
 After=network-online.target

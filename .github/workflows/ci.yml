@@ -106,6 +106,12 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
 
+      - name: Package web dist
+        run: |
+          cd mesnet-web
+          tar czf ../mesnet-web.tar.gz .
+          cd ..
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -113,6 +119,6 @@ jobs:
             mesnet-agent-linux/mesnet-agent-linux-*
             mesnet-agent-darwin/mesnet-agent-darwin-*
             mesnet-server/mesnet-server
-            mesnet-web
+            mesnet-web.tar.gz
           draft: true
           generate_release_notes: true
