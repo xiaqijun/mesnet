@@ -78,6 +78,7 @@ func main() {
 		api.GET("/agents/versions", handlers.GetAgentVersions(db, registry))
 		api.POST("/agents/update", handlers.UpdateAgent(registry))
 		api.POST("/agents/update-all", handlers.UpdateAllAgents(registry))
+		api.POST("/server/update", handlers.UpdateServer())
 
 		nodes := api.Group("/nodes")
 		{

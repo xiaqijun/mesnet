@@ -1,7 +1,10 @@
 package handlers
 
 import (
+	"fmt"
+	"io"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -10,20 +13,22 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentAgentVersion = "v1.0.0"
+const CurrentVersion = "v1.0.0"
 
-// GetAgentVersions returns version info for all nodes.
+const ReleaseBase = "https://github.com/xiaqijun/mesnet/releases/latest/download"
+
+// GetAgentVersions returns version info for all nodes and the server itself.
 func GetAgentVersions(db *gorm.DB, registry *ws.Registry) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var nodes []models.Node
 		db.Order("name asc").Find(&nodes)
 
 		type versionInfo struct {
-			ID       uint   `json:"id"`
-			Name     string `json:"name"`
-			Version  string `json:"version"`
-			Online   bool   `json:"online"`
-			Latest   bool   `json:"latest"`
+			ID      uint   `json:"id"`
+			Name    string `json:"name"`
+			Version string `json:"version"`
+			Online  bool   `json:"online"`
+			Latest  bool   `json:"latest"`
 		}
 
 		result := make([]versionInfo, 0, len(nodes))
@@ -33,14 +38,43 @@ func GetAgentVersions(db *gorm.DB, registry *ws.Registry) gin.HandlerFunc {
 				Name:    n.Name,
 				Version: n.AgentVersion,
 				Online:  registry.IsOnline(n.ID),
-				Latest:  n.AgentVersion == "" || n.AgentVersion == CurrentAgentVersion,
+				Latest:  n.AgentVersion == "" || n.AgentVersion == CurrentVersion,
 			})
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"current_version": CurrentAgentVersion,
+			"current_version": CurrentVersion,
+			"server_version":  CurrentVersion,
 			"nodes":           result,
 		})
+	}
+}
+
+// UpdateServer triggers the control plane server to self-update.
+func UpdateServer() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		go func() {
+			url := fmt.Sprintf("%s/mesnet-server", ReleaseBase)
+			resp, err := http.Get(url)
+			if err != nil {
+				return
+			}
+			defer resp.Body.Close()
+
+			tmpPath := "/tmp/mesnet-server.new"
+			f, _ := os.Create(tmpPath)
+			if f != nil {
+				io.Copy(f, resp.Body)
+				f.Close()
+				os.Chmod(tmpPath, 0755)
+
+				exePath, _ := os.Executable()
+				os.Rename(tmpPath, exePath)
+			}
+			os.Exit(0)
+		}()
+
+		c.JSON(http.StatusOK, gin.H{"status": "restarting"})
 	}
 }
 

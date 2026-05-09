@@ -96,6 +96,12 @@ export default function Servers() {
     alert(`已触发 ${data.updated} 个 Agent 更新`)
   }
 
+  const handleServerUpdate = async () => {
+    if (!confirm('确定更新控制端服务器？服务会短暂中断。')) return
+    await fetch('/api/server/update', { method: 'POST' })
+    alert('服务端更新中，稍后刷新页面...')
+  }
+
   if (loading) return <div className="text-gray-500 text-sm p-6">加载中...</div>
 
   const cloudServers = data?.cloud_servers || []
@@ -108,6 +114,9 @@ export default function Servers() {
         <div className="flex gap-2">
           <button onClick={handleUpdateAll} className="px-3 py-1.5 text-xs bg-amber-600/20 text-amber-400 rounded hover:bg-amber-600/40 transition-colors">
             更新全部 Agent
+          </button>
+          <button onClick={handleServerUpdate} className="px-3 py-1.5 text-xs bg-purple-600/20 text-purple-400 rounded hover:bg-purple-600/40 transition-colors">
+            更新控制端
           </button>
           <button onClick={() => setShowAddCloud(!showAddCloud)} className="px-3 py-1.5 text-xs bg-emerald-600 hover:bg-emerald-500 text-white rounded transition-colors">
             添加云服务器
