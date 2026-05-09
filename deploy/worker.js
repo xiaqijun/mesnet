@@ -10,24 +10,23 @@ export default {
 
     // 安装脚本
     if (path === "/" || path === "/install" || path === "/install.sh") {
-      const res = await fetch(`${GH}/mesnet-server`, { method: "HEAD" }).catch(() => null);
       return new Response(INSTALL_SCRIPT, {
         headers: {
           "Content-Type": "text/plain; charset=utf-8",
           "Cache-Control": "public, max-age=3600",
-          "X-Latest-Version": res ? res.headers.get("X-GitHub-Release") || "v1.0.0" : "unknown",
         },
       });
     }
 
-    // 二进制 / 前端包 — 从 GitHub 拉取，边缘缓存 24h
+    // 二进制 / 前端包 — 从 GitHub 拉取，边缘缓存 24h，透传 Content-Length
     const target = `${GH}${path}`;
     const res = await fetch(target);
     if (!res.ok) return new Response("Not Found", { status: 404 });
 
     return new Response(res.body, {
       headers: {
-        "Content-Type": res.headers.get("Content-Type") || "application/octet-stream",
+        "Content-Type": "application/octet-stream",
+        "Content-Length": res.headers.get("Content-Length") || "",
         "Cache-Control": "public, max-age=86400",
       },
     });
@@ -40,12 +39,11 @@ set -e
 BASE="https://meshnet.kisectool.com"
 
 echo ">>> 下载控制端..."
-curl -fsSL "\${BASE}/mesnet-server" -o /usr/local/bin/mesnet-server
+curl -# -L -o /usr/local/bin/mesnet-server "\${BASE}/mesnet-server"
 chmod +x /usr/local/bin/mesnet-server
 
 echo ">>> 下载前端..."
-mkdir -p /etc/mesnet/web
-curl -fsSL "\${BASE}/mesnet-web.tar.gz" | tar xz -C /etc/mesnet/web
+curl -# -L "\${BASE}/mesnet-web.tar.gz" | tar xz -C /etc/mesnet/web
 
 echo ">>> 安装服务..."
 cat > /etc/systemd/system/mesnet-server.service <<'UNIT'
