@@ -38,23 +38,75 @@ MeshNet/
 └── deploy/              # 部署文件
 ```
 
-## 构建
+## 一键安装
+
+### 控制端 (Linux amd64)
+
+```bash
+curl -fsSL https://github.com/xiaqijun/mesnet/releases/latest/download/mesnet-server -o /usr/local/bin/mesnet-server && chmod +x /usr/local/bin/mesnet-server && curl -fsSL https://github.com/xiaqijun/mesnet/releases/latest/download/mesnet-web.tar.gz | tar xz -C /etc/mesnet/web && cat > /etc/systemd/system/mesnet-server.service <<'EOF'
+[Unit]
+Description=MeshNet Control Plane
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/etc/mesnet
+ExecStart=/usr/local/bin/mesnet-server
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload && systemctl enable --now mesnet-server
+```
+
+### Agent (Linux amd64, 骨干节点)
+
+```bash
+curl -fsSL https://github.com/xiaqijun/mesnet/releases/latest/download/mesnet-agent-linux-amd64 -o /usr/local/bin/mesnet-agent && chmod +x /usr/local/bin/mesnet-agent && cat > /etc/systemd/system/mesnet-agent.service <<'EOF'
+[Unit]
+Description=MeshNet Agent
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/mesnet-agent --server wss://YOUR_SERVER/ws/agent/YOUR_TOKEN --listen :443 --name YOUR_NAME
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload && systemctl enable --now mesnet-agent
+```
+
+### Agent (叶子节点, 终端主机)
+
+```bash
+curl -fsSL https://github.com/xiaqijun/mesnet/releases/latest/download/mesnet-agent-linux-amd64 -o /usr/local/bin/mesnet-agent && chmod +x /usr/local/bin/mesnet-agent && cat > /etc/systemd/system/mesnet-agent.service <<'EOF'
+[Unit]
+Description=MeshNet Agent
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/mesnet-agent --server wss://YOUR_SERVER/ws/agent/YOUR_TOKEN --listen :443 --name YOUR_NAME --backbone=false
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload && systemctl enable --now mesnet-agent
+```
+
+### 更新
 
 ```bash
 # 控制端
-go build -o mesnet-server ./cmd/server/
+curl -fsSL https://github.com/xiaqijun/mesnet/releases/latest/download/mesnet-server -o /usr/local/bin/mesnet-server && chmod +x /usr/local/bin/mesnet-server && systemctl restart mesnet-server
 
 # Agent
-go build -o mesnet-agent ./cmd/agent/
-
-# 前端
-cd web && npm install && npm run build
-```
-
-## 部署
-
-```bash
-# Agent (二进制 + systemd, 一行命令)
-curl -sSL https://<cp>:8080/api/agent/binary -o /usr/local/bin/mesnet-agent && chmod +x /usr/local/bin/mesnet-agent
-mesnet-agent --server wss://<cp>:443/ws/agent/<token> --listen :443 --name node1
+curl -fsSL https://github.com/xiaqijun/mesnet/releases/latest/download/mesnet-agent-linux-amd64 -o /usr/local/bin/mesnet-agent && chmod +x /usr/local/bin/mesnet-agent && systemctl restart mesnet-agent
 ```
