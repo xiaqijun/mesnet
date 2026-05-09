@@ -1,0 +1,16 @@
+server:
+  host: "0.0.0.0"
+  port: 8080
+  ws_port: 443
+  tls_cert: ""
+  tls_key: ""
+
+database:
+  driver: "sqlite"  # sqlite | postgres | mysql
+  dsn: "mesnet.db"  # sqlite: filepath, pg: host=... user=... password=... dbname=...
+
+agent:
+  secret_key: "change-me-in-production"
+  virtual_network: "10.100.0.0/16"
+  heartbeat_interval: 30
+  binary_download_url: "https://localhost:8080/api/agent/binary"

@@ -1,0 +1,117 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── Go Server ──
+  server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Build server
+        run: CGO_ENABLED=1 go build -o mesnet-server ./cmd/server/
+
+      - name: Upload server artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mesnet-server
+          path: mesnet-server
+
+  # ── Go Agent (Linux) ──
+  agent-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Build agent (linux/amd64)
+        run: GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o mesnet-agent-linux-amd64 ./cmd/agent/
+
+      - name: Build agent (linux/arm64)
+        run: GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o mesnet-agent-linux-arm64 ./cmd/agent/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mesnet-agent-linux
+          path: mesnet-agent-linux-*
+
+  # ── Go Agent (macOS) ──
+  agent-darwin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Build agent (darwin/amd64)
+        run: GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -o mesnet-agent-darwin-amd64 ./cmd/agent/
+
+      - name: Build agent (darwin/arm64)
+        run: GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o mesnet-agent-darwin-arm64 ./cmd/agent/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mesnet-agent-darwin
+          path: mesnet-agent-darwin-*
+
+  # ── React Frontend ──
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mesnet-web
+          path: web/dist
+
+  # ── Release (on tag push) ──
+  release:
+    needs: [server, agent-linux, agent-darwin, web]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            mesnet-agent-linux/mesnet-agent-linux-*
+            mesnet-agent-darwin/mesnet-agent-darwin-*
+            mesnet-server/mesnet-server
+            mesnet-web
+          draft: true
+          generate_release_notes: true

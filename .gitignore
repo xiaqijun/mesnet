@@ -1,0 +1,28 @@
+# Binaries
+mesnet-server
+mesnet-agent
+mesnet-server.exe
+mesnet-agent.exe
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+
+# IDE
+.vscode/
+.idea/
+
+# Node
+web/node_modules/
+web/dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config (sensitive)
+.env
+*.exe~
+agent.exe
+server.exe
