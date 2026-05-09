@@ -74,6 +74,11 @@ func main() {
 		api.POST("/servers/leaf", handlers.AddLeafNode(db, registry))
 		api.GET("/servers/:id/deploy", handlers.GetServerDeploy(db))
 
+		// Agent updates
+		api.GET("/agents/versions", handlers.GetAgentVersions(db, registry))
+		api.POST("/agents/update", handlers.UpdateAgent(registry))
+		api.POST("/agents/update-all", handlers.UpdateAllAgents(registry))
+
 		nodes := api.Group("/nodes")
 		{
 			nodes.GET("", handlers.ListNodes(db, registry))

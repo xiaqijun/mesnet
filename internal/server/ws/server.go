@@ -237,6 +237,17 @@ func HandleAgent(w http.ResponseWriter, r *http.Request, registry *Registry, db 
 				"connected": true,
 				"last_seen": time.Now(),
 			})
+
+			// Record agent version
+			var hello struct {
+				Type    string `json:"type"`
+				Name    string `json:"name"`
+				Version string `json:"version"`
+			}
+			if json.Unmarshal(raw, &hello) == nil && hello.Version != "" {
+				db.Table("nodes").Where("id = ?", node.ID).Update("agent_version", hello.Version)
+			}
+
 			if registry.onHello != nil {
 				go registry.onHello(node.ID)
 			}

@@ -78,6 +78,24 @@ export default function Servers() {
     setShowDeploy(true)
   }
 
+  const handleUpdate = async (id) => {
+    const res = await fetch('/api/agents/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ node_id: id }),
+    })
+    const data = await res.json()
+    if (data.error) alert('更新失败: ' + data.error)
+    else alert('更新指令已发送，Agent 将自动更新并重启')
+  }
+
+  const handleUpdateAll = async () => {
+    if (!confirm('确定更新所有在线 Agent？')) return
+    const res = await fetch('/api/agents/update-all', { method: 'POST' })
+    const data = await res.json()
+    alert(`已触发 ${data.updated} 个 Agent 更新`)
+  }
+
   if (loading) return <div className="text-gray-500 text-sm p-6">加载中...</div>
 
   const cloudServers = data?.cloud_servers || []
@@ -88,6 +106,9 @@ export default function Servers() {
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-bold">服务器管理</h2>
         <div className="flex gap-2">
+          <button onClick={handleUpdateAll} className="px-3 py-1.5 text-xs bg-amber-600/20 text-amber-400 rounded hover:bg-amber-600/40 transition-colors">
+            更新全部 Agent
+          </button>
           <button onClick={() => setShowAddCloud(!showAddCloud)} className="px-3 py-1.5 text-xs bg-emerald-600 hover:bg-emerald-500 text-white rounded transition-colors">
             添加云服务器
           </button>
@@ -169,9 +190,18 @@ export default function Servers() {
               </div>
               <div className="flex gap-2">
                 <button onClick={() => handleDeploy(s.id)} className="px-2 py-1 text-[10px] bg-emerald-600/20 text-emerald-400 rounded hover:bg-emerald-600/40">部署</button>
+                {s.online && s.version && s.version !== 'v1.0.0' && (
+                  <button onClick={() => handleUpdate(s.id)} className="px-2 py-1 text-[10px] bg-amber-600/20 text-amber-400 rounded hover:bg-amber-600/40">更新</button>
+                )}
                 <button onClick={() => handleDelete(s.id)} className="px-2 py-1 text-[10px] bg-red-600/20 text-red-400 rounded hover:bg-red-600/40">删除</button>
               </div>
             </div>
+            {s.version && (
+              <div className="mt-2 text-[10px] text-gray-500">
+                版本: {s.version}
+                {s.version !== 'v1.0.0' && s.online && <span className="text-amber-400 ml-1">(可更新)</span>}
+              </div>
+            )}
           </div>
         ))}
         {cloudServers.length === 0 && <p className="text-xs text-gray-500 py-4 text-center">暂无云服务器</p>}

@@ -48,10 +48,11 @@ func (c *WSClient) Connect() {
 		c.closed = false
 		c.mu.Unlock()
 
-		// Send hello
+		// Send hello with version
 		c.SendJSON(map[string]string{
-			"type": "hello",
-			"name": "agent",
+			"type":    "hello",
+			"name":    "agent",
+			"version": AgentVersion,
 		})
 
 		c.readLoop(conn)

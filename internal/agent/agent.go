@@ -150,6 +150,13 @@ func (a *Agent) HandleCommand(action string, args json.RawMessage) (any, error) 
 	case "status":
 		result := a.CollectStatus()
 		return result, nil
+
+	case "agent_update":
+		log.Printf("self-update triggered by control plane")
+		if err := SelfUpdate(); err != nil {
+			return nil, err
+		}
+		return map[string]string{"status": "restarting"}, nil
 	}
 
 	log.Printf("unknown command: %s", action)
