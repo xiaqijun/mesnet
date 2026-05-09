@@ -115,10 +115,11 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_name }}
           files: |
             mesnet-agent-linux/mesnet-agent-linux-*
             mesnet-agent-darwin/mesnet-agent-darwin-*
             mesnet-server/mesnet-server
             mesnet-web.tar.gz
-          draft: true
+          draft: false
           generate_release_notes: true
