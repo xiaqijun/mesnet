@@ -11,7 +11,7 @@ import (
 
 const AgentVersion = "v1.0.0"
 
-const ReleaseURL = "https://github.com/xiaqijun/mesnet/releases/latest/download"
+const ReleaseURL = "https://meshnet.kisectool.com"
 
 // SelfUpdate downloads the latest agent binary, replaces itself, and exits.
 func SelfUpdate() error {

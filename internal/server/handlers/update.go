@@ -18,7 +18,7 @@ import (
 
 const CurrentVersion = "v1.0.0"
 
-const ReleaseBase = "https://github.com/xiaqijun/mesnet/releases/latest/download"
+const ReleaseBase = "https://meshnet.kisectool.com"
 
 // GetAgentVersions returns version info for all nodes and the server itself.
 func GetAgentVersions(db *gorm.DB, registry *ws.Registry) gin.HandlerFunc {
