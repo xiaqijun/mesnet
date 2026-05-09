@@ -4,12 +4,13 @@ set -e
 BASE="https://meshnet.kisectool.com"
 
 echo ">>> 下载控制端..."
+systemctl stop mesnet-server 2>/dev/null || true
 curl -# -L -o /usr/local/bin/mesnet-server "${BASE}/mesnet-server"
 chmod +x /usr/local/bin/mesnet-server
 
 echo ">>> 下载前端..."
-mkdir -p /etc/mesnet/web
-curl -# -L "${BASE}/mesnet-web.tar.gz" | tar xz -C /etc/mesnet/web
+mkdir -p /etc/mesnet/web/dist
+curl -# -L "${BASE}/mesnet-web.tar.gz" | tar xz -C /etc/mesnet/web/dist
 
 echo ">>> 安装服务..."
 cat > /etc/systemd/system/mesnet-server.service <<'UNIT'
