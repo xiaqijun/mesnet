@@ -71,11 +71,9 @@ func (c *SSHClient) Exec(cmd string) (string, error) {
 func (c *SSHClient) DeployAgent(token, name string, backbone bool) (string, error) {
 	steps := make([]string, 0)
 
-	// Step 1: Download agent binary from control plane
+	// Step 1: Download agent binary from GitHub Releases
 	steps = append(steps, "download binary")
-	dlCmd := fmt.Sprintf(
-		"curl -fsSL http://YOUR_SERVER:8080/api/agent/binary -o /usr/local/bin/mesnet-agent && chmod +x /usr/local/bin/mesnet-agent",
-	)
+	dlCmd := "curl -fsSL https://github.com/xiaqijun/mesnet/releases/latest/download/mesnet-agent-linux-amd64 -o /usr/local/bin/mesnet-agent && chmod +x /usr/local/bin/mesnet-agent"
 	if out, err := c.Exec(dlCmd); err != nil {
 		return joinSteps(steps), fmt.Errorf("download: %w (%s)", err, out)
 	}
