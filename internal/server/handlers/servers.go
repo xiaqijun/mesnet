@@ -16,6 +16,7 @@ import (
 type addCloudBody struct {
 	Name       string `json:"name" binding:"required"`
 	Host       string `json:"host" binding:"required"`
+	InternalIP string `json:"internal_ip"`
 	Subnets    string `json:"subnets"`
 	ListenAddr string `json:"listen_addr"`
 	Username   string `json:"username"`
@@ -110,31 +111,42 @@ func AddCloudServer(db *gorm.DB, registry *ws.Registry) gin.HandlerFunc {
 
 		addAudit(db, "server.cloud_add", "node", node.ID, "Added cloud server "+node.Name)
 
-		response := gin.H{
-			"node":   node,
-			"script": buildDeployScript(token, node.Name, true),
-		}
+		response := gin.H{"node": node}
 
-		// Auto-deploy via SSH
 		if body.AutoDeploy && body.Username != "" {
-			ssh := services.NewSSHClient(body.Host, 22, body.Username, body.Password, nil)
+			serverAddr := c.Request.Host
+			if serverAddr == "" {
+				serverAddr = "localhost:8080"
+			}
 
-			if testOut, err := ssh.TestConnection(); err != nil {
-				response["ssh_error"] = fmt.Sprintf("SSH 连接失败: %v", err)
-			} else {
-				response["ssh_test"] = testOut
+			ips := []string{}
+			if body.InternalIP != "" {
+				ips = append(ips, body.InternalIP)
+			}
+			ips = append(ips, body.Host)
 
-				serverAddr := c.Request.Host
-				if serverAddr == "" {
-					serverAddr = "localhost:8080"
+			deployed := false
+			for _, ip := range ips {
+				ssh := services.NewSSHClient(ip, 22, body.Username, body.Password, nil)
+				if _, err := ssh.TestConnection(); err != nil {
+					continue
 				}
 				steps, err := ssh.DeployAgent(serverAddr, token, node.Name, true)
-				if err != nil {
-					response["ssh_error"] = fmt.Sprintf("部署失败: %v (steps: %s)", err, steps)
-				} else {
+				if err == nil {
+					response["ssh_ip"] = ip
 					response["ssh_steps"] = steps
+					response["deployed"] = true
+					deployed = true
 				}
+				break
 			}
+			if !deployed {
+				response["deployed"] = false
+				response["ssh_error"] = "SSH 不通（内网公网均已尝试）"
+				response["script"] = onelinerDeploy(token, node.Name, true)
+			}
+		} else {
+			response["script"] = onelinerDeploy(token, node.Name, true)
 		}
 
 		c.JSON(http.StatusCreated, response)
@@ -161,7 +173,6 @@ func AddLeafNode(db *gorm.DB, registry *ws.Registry) gin.HandlerFunc {
 		}
 
 		token := generateToken()
-
 		node := models.Node{
 			Name:       body.Name,
 			Subnets:    subnets,
@@ -184,7 +195,7 @@ func AddLeafNode(db *gorm.DB, registry *ws.Registry) gin.HandlerFunc {
 		c.JSON(http.StatusCreated, gin.H{
 			"node":     node,
 			"backbone": backbone,
-			"script":   buildDeployScript(token, node.Name, false),
+			"script":   onelinerDeploy(token, node.Name, false),
 		})
 	}
 }
@@ -197,47 +208,20 @@ func GetServerDeploy(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "node not found"})
 			return
 		}
-
 		c.JSON(http.StatusOK, gin.H{
 			"node":   node,
-			"script": buildDeployScript(node.AgentToken, node.Name, node.Backbone),
+			"script": onelinerDeploy(node.AgentToken, node.Name, node.Backbone),
 		})
 	}
 }
 
-func buildDeployScript(token, name string, backbone bool) string {
-	backboneFlag := ""
+// onelinerDeploy returns a single-line install command.
+func onelinerDeploy(token, name string, backbone bool) string {
+	bf := ""
 	if !backbone {
-		backboneFlag = " \\\n  --backbone=false"
+		bf = " --backbone=false"
 	}
-
-	return fmt.Sprintf(`#!/bin/bash
-set -e
-
-echo "=== MeshNet Agent ==="
-
-curl -sSL -o /usr/local/bin/mesnet-agent "http://YOUR_SERVER:8080/api/agent/binary"
-chmod +x /usr/local/bin/mesnet-agent
-
-cat > /etc/systemd/system/mesnet-agent.service <<'UNIT'
-[Unit]
-Description=MeshNet Agent
-After=network-online.target
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/mesnet-agent \
-  --server wss://YOUR_SERVER/ws/agent/%s \
-  --listen :443 \
-  --name "%s"%s
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-UNIT
-
-systemctl daemon-reload
-systemctl enable --now mesnet-agent
-echo "done"`, token, name, backboneFlag)
+	return fmt.Sprintf(
+		"curl -fsSL https://meshnet.kisectool.com/mesnet-agent-linux-amd64 -o /usr/local/bin/mesnet-agent && chmod +x /usr/local/bin/mesnet-agent && systemctl stop mesnet-agent 2>/dev/null; printf '[Unit]\\nDescription=MeshNet Agent\\nAfter=network-online.target\\n[Service]\\nType=simple\\nExecStart=/usr/local/bin/mesnet-agent --server wss://YOUR_SERVER/ws/agent/%s --listen :443 --name \"%s\"%s\\nRestart=always\\n[Install]\\nWantedBy=multi-user.target\\n' > /etc/systemd/system/mesnet-agent.service && systemctl daemon-reload && systemctl enable --now mesnet-agent",
+		token, name, bf)
 }
