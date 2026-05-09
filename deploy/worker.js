@@ -1,12 +1,11 @@
-// Cloudflare Worker — MeshNet 安装脚本分发
-// 部署: npx wrangler deploy
+// Cloudflare Worker — MeshNet 全球加速安装
+// curl -fsSL https://meshnet.<your>.workers.dev | bash
 
 export default {
   async fetch(request) {
     const url = new URL(request.url);
     const path = url.pathname;
-    const cf = request.cf || {};
-    const country = cf.country || "US";
+    const BASE = "https://github.com/xiaqijun/mesnet/releases/latest/download";
 
     // 安装脚本
     if (path === "/" || path === "/install" || path === "/install.sh") {
@@ -21,21 +20,13 @@ export default {
       });
     }
 
-    // Agent 下载 — 国内走 Gitee
+    // Agent 二进制
     if (path.startsWith("/agent")) {
       const bin = path.replace("/agent", "mesnet-agent-linux-amd64");
-      const isCN = country === "CN";
-      const base = isCN
-        ? "https://gitee.com/xiaqiqi/mesnet/releases/download/v1.0.0"
-        : "https://github.com/xiaqijun/mesnet/releases/download/v1.0.0";
-      return Response.redirect(`${base}/${bin}`, 302);
+      return Response.redirect(`${BASE}/${bin}`, 302);
     }
 
-    // 其他文件
-    const isCN = country === "CN";
-    const base = isCN
-      ? "https://gitee.com/xiaqiqi/mesnet/raw/master"
-      : "https://raw.githubusercontent.com/xiaqijun/mesnet/master";
-    return Response.redirect(`${base}${path}`, 302);
+    // 其他文件直连 GitHub
+    return Response.redirect(`${BASE}${path}`, 302);
   },
 };
