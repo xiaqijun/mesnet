@@ -68,7 +68,7 @@ func (c *SSHClient) Exec(cmd string) (string, error) {
 	return string(out), err
 }
 
-func (c *SSHClient) DeployAgent(token, name string, backbone bool) (string, error) {
+func (c *SSHClient) DeployAgent(serverAddr, token, name string, backbone bool) (string, error) {
 	steps := make([]string, 0)
 
 	// Step 1: Download agent binary from GitHub Releases
