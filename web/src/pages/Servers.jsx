@@ -71,11 +71,26 @@ export default function Servers() {
     await fetch(`/api/nodes/${id}`, { method: 'DELETE' })
   }
 
-  const handleDeploy = async (id) => {
-    const res = await fetch(`/api/servers/${id}/deploy`)
+  const handleDeploy = async (id, host) => {
+    // Try auto-deploy with SSH
+    const user = prompt('SSH 用户名:', 'root')
+    if (!user) return
+    const pass = prompt('SSH 密码:')
+    if (!pass) return
+
+    const res = await fetch(`/api/servers/${id}/auto-deploy`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ host, username: user, password: pass }),
+    })
     const data = await res.json()
-    setDeployScript(data.script)
-    setShowDeploy(true)
+
+    if (data.deployed) {
+      alert(`部署成功! ${data.host}`)
+    } else {
+      setDeployScript(data.script)
+      setShowDeploy(true)
+    }
   }
 
   const handleUpdate = async (id) => {
@@ -198,7 +213,7 @@ export default function Servers() {
                 </div>
               </div>
               <div className="flex gap-2">
-                <button onClick={() => handleDeploy(s.id)} className="px-2 py-1 text-[10px] bg-emerald-600/20 text-emerald-400 rounded hover:bg-emerald-600/40">部署</button>
+                <button onClick={() => handleDeploy(s.id, s.host)} className="px-2 py-1 text-[10px] bg-emerald-600/20 text-emerald-400 rounded hover:bg-emerald-600/40">部署</button>
                 {s.online && s.version && s.version !== 'v1.0.0' && (
                   <button onClick={() => handleUpdate(s.id)} className="px-2 py-1 text-[10px] bg-amber-600/20 text-amber-400 rounded hover:bg-amber-600/40">更新</button>
                 )}

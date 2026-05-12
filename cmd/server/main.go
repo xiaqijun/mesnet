@@ -73,6 +73,7 @@ func main() {
 		api.POST("/servers/cloud", handlers.AddCloudServer(db, registry))
 		api.POST("/servers/leaf", handlers.AddLeafNode(db, registry))
 		api.GET("/servers/:id/deploy", handlers.GetServerDeploy(db))
+		api.POST("/servers/:id/auto-deploy", handlers.AutoDeployNode(db))
 
 		// Agent updates
 		api.GET("/agents/versions", handlers.GetAgentVersions(db, registry))
