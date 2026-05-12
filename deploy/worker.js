@@ -1,4 +1,5 @@
 const GH = "https://github.com/xiaqijun/mesnet/releases/latest/download";
+const VER = "v1.0.5";
 
 export default {
   async fetch(request) {
@@ -8,6 +9,12 @@ export default {
     if (path === "/" || path === "/install" || path === "/install.sh") {
       return new Response(INSTALL_SCRIPT, {
         headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "public, max-age=3600" },
+      });
+    }
+
+    if (path === "/version") {
+      return new Response(VER, {
+        headers: { "Content-Type": "text/plain", "Cache-Control": "no-cache" },
       });
     }
 
@@ -29,8 +36,18 @@ const INSTALL_SCRIPT = `#!/bin/bash
 set -e
 BASE="https://meshnet.kisectool.com"
 
-echo ">>> 下载控制端..."
+LATEST=\$(curl -s "\${BASE}/version")
+
+CURRENT=\$(/usr/local/bin/mesnet-server --version 2>/dev/null || echo "")
+if [ -n "\$CURRENT" ] && [ "\$CURRENT" = "\$LATEST" ]; then
+  echo "已是最新版本 \$CURRENT，无需更新"
+  exit 0
+fi
+
+echo ">>> 更新 \$CURRENT → \$LATEST"
 systemctl stop mesnet-server 2>/dev/null || true
+
+echo ">>> 下载控制端..."
 curl -# -L -o /usr/local/bin/mesnet-server "\${BASE}/mesnet-server"
 chmod +x /usr/local/bin/mesnet-server
 

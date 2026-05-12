@@ -1,6 +1,8 @@
 package main
 
 import (
+	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -15,6 +17,12 @@ import (
 )
 
 func main() {
+	version := flag.Bool("version", false, "print version")
+	flag.Parse()
+	if *version {
+		fmt.Println("v1.0.5")
+		return
+	}
 	cfg := config.Load()
 
 	db, err := database.Init(cfg)
