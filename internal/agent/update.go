@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"os"
 	"runtime"
-)
 
-const AgentVersion = "v1.0.6"
+	"github.com/mesnet/mesnet/internal/version"
+)
 
 const ReleaseURL = "https://meshnet.kisectool.com"
 

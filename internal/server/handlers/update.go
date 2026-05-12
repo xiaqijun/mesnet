@@ -13,10 +13,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/mesnet/mesnet/internal/server/models"
 	"github.com/mesnet/mesnet/internal/server/ws"
+	"github.com/mesnet/mesnet/internal/version"
 	"gorm.io/gorm"
 )
-
-const CurrentVersion = "v1.0.6"
 
 const ReleaseBase = "https://meshnet.kisectool.com"
 
@@ -41,13 +40,13 @@ func GetAgentVersions(db *gorm.DB, registry *ws.Registry) gin.HandlerFunc {
 				Name:    n.Name,
 				Version: n.AgentVersion,
 				Online:  registry.IsOnline(n.ID),
-				Latest:  n.AgentVersion == "" || n.AgentVersion == CurrentVersion,
+				Latest:  n.AgentVersion == "" || n.AgentVersion == version.Current,
 			})
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"current_version": CurrentVersion,
-			"server_version":  CurrentVersion,
+			"current_version": version.Current,
+			"server_version":  version.Current,
 			"nodes":           result,
 		})
 	}

@@ -52,7 +52,7 @@ func (c *WSClient) Connect() {
 		c.SendJSON(map[string]string{
 			"type":    "hello",
 			"name":    "agent",
-			"version": AgentVersion,
+			"version": version.Current,
 		})
 
 		c.readLoop(conn)

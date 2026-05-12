@@ -14,13 +14,14 @@ import (
 	"github.com/mesnet/mesnet/internal/server/handlers"
 	"github.com/mesnet/mesnet/internal/server/services"
 	"github.com/mesnet/mesnet/internal/server/ws"
+	"github.com/mesnet/mesnet/internal/version"
 )
 
 func main() {
-	version := flag.Bool("version", false, "print version")
+	showVersion := flag.Bool("version", false, "print version")
 	flag.Parse()
-	if *version {
-		fmt.Println("v1.0.5")
+	if *showVersion {
+		fmt.Println(version.Current)
 		return
 	}
 	cfg := config.Load()
