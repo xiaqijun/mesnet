@@ -9,7 +9,7 @@ import (
 	"runtime"
 )
 
-const AgentVersion = "v1.0.0"
+const AgentVersion = "v1.0.6"
 
 const ReleaseURL = "https://meshnet.kisectool.com"
 
