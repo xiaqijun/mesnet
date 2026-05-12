@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/mesnet/mesnet/internal/version"
 )
 
 // WSClient maintains a WSS connection to the control plane.

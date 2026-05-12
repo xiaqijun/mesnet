@@ -74,5 +74,5 @@ func SelfUpdate() error {
 
 // CheckVersion returns the current agent version.
 func CheckVersion() string {
-	return AgentVersion
+	return version.Current
 }
