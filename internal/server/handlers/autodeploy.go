@@ -52,7 +52,7 @@ func AutoDeployNode(db *gorm.DB) gin.HandlerFunc {
 
 		c.JSON(http.StatusOK, gin.H{
 			"deployed": false,
-			"script":   onelinerDeploy(node.AgentToken, node.Name, node.Backbone),
+			"script":   onelinerDeploy(node.AgentToken, node.Name, c.Request.Host, node.Backbone),
 			"error":    "SSH 不通，请手动执行",
 		})
 	}

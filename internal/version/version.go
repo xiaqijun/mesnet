@@ -1,3 +1,4 @@
 package version
 
-const Current = "v1.0.6"
+// Current is set via ldflags at build time. Defaults to "dev".
+var Current = "dev"

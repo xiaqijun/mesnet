@@ -143,10 +143,10 @@ func AddCloudServer(db *gorm.DB, registry *ws.Registry) gin.HandlerFunc {
 			if !deployed {
 				response["deployed"] = false
 				response["ssh_error"] = "SSH 不通（内网公网均已尝试）"
-				response["script"] = onelinerDeploy(token, node.Name, true)
+				response["script"] = onelinerDeploy(token, node.Name, c.Request.Host, true)
 			}
 		} else {
-			response["script"] = onelinerDeploy(token, node.Name, true)
+			response["script"] = onelinerDeploy(token, node.Name, c.Request.Host, true)
 		}
 
 		c.JSON(http.StatusCreated, response)
@@ -195,7 +195,7 @@ func AddLeafNode(db *gorm.DB, registry *ws.Registry) gin.HandlerFunc {
 		c.JSON(http.StatusCreated, gin.H{
 			"node":     node,
 			"backbone": backbone,
-			"script":   onelinerDeploy(token, node.Name, false),
+			"script":   onelinerDeploy(token, node.Name, c.Request.Host, false),
 		})
 	}
 }
@@ -210,18 +210,18 @@ func GetServerDeploy(db *gorm.DB) gin.HandlerFunc {
 		}
 		c.JSON(http.StatusOK, gin.H{
 			"node":   node,
-			"script": onelinerDeploy(node.AgentToken, node.Name, node.Backbone),
+			"script": onelinerDeploy(node.AgentToken, node.Name, c.Request.Host, node.Backbone),
 		})
 	}
 }
 
 // onelinerDeploy returns a single-line install command.
-func onelinerDeploy(token, name string, backbone bool) string {
+func onelinerDeploy(token, name, serverAddr string, backbone bool) string {
 	bf := ""
 	if !backbone {
 		bf = " --backbone=false"
 	}
 	return fmt.Sprintf(
-		"curl -fsSL https://meshnet.kisectool.com/mesnet-agent-linux-amd64 -o /usr/local/bin/mesnet-agent && chmod +x /usr/local/bin/mesnet-agent && systemctl stop mesnet-agent 2>/dev/null; printf '[Unit]\\nDescription=MeshNet Agent\\nAfter=network-online.target\\n[Service]\\nType=simple\\nExecStart=/usr/local/bin/mesnet-agent --server wss://YOUR_SERVER/ws/agent/%s --listen :443 --name \"%s\"%s\\nRestart=always\\n[Install]\\nWantedBy=multi-user.target\\n' > /etc/systemd/system/mesnet-agent.service && systemctl daemon-reload && systemctl enable --now mesnet-agent",
-		token, name, bf)
+		"curl -fsSL https://meshnet.kisectool.com/mesnet-agent-linux-amd64 -o /usr/local/bin/mesnet-agent && chmod +x /usr/local/bin/mesnet-agent && systemctl stop mesnet-agent 2>/dev/null; printf '[Unit]\\nDescription=MeshNet Agent\\nAfter=network-online.target\\n[Service]\\nType=simple\\nExecStart=/usr/local/bin/mesnet-agent --server ws://%s/ws/agent/%s --listen :443 --name \"%s\"%s\\nRestart=always\\n[Install]\\nWantedBy=multi-user.target\\n' > /etc/systemd/system/mesnet-agent.service && systemctl daemon-reload && systemctl enable --now mesnet-agent",
+		serverAddr, token, name, bf)
 }

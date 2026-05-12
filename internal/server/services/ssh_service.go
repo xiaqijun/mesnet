@@ -2,12 +2,11 @@ package services
 
 import (
 	"fmt"
-	"net"
-	"time"
 
 	"golang.org/x/crypto/ssh"
 )
 
+// SSHClient wraps a single SSH connection for remote execution.
 type SSHClient struct {
 	host     string
 	port     int
@@ -26,41 +25,22 @@ func NewSSHClient(host string, port int, user, password string, privateKey []byt
 	}
 }
 
-func (c *SSHClient) connect() (*ssh.Client, error) {
-	auth := make([]ssh.AuthMethod, 0)
-	if len(c.key) > 0 {
-		signer, err := ssh.ParsePrivateKey(c.key)
-		if err != nil {
-			return nil, fmt.Errorf("parse key: %w", err)
-		}
-		auth = append(auth, ssh.PublicKeys(signer))
-	} else if c.password != "" {
-		auth = append(auth, ssh.Password(c.password))
-	} else {
-		return nil, fmt.Errorf("no auth method")
-	}
-
-	config := &ssh.ClientConfig{
-		User:            c.user,
-		Auth:            auth,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		Timeout:         10 * time.Second,
-	}
-
-	addr := net.JoinHostPort(c.host, fmt.Sprintf("%d", c.port))
-	return ssh.Dial("tcp", addr, config)
-}
-
+// Exec runs a command on the remote host.
 func (c *SSHClient) Exec(cmd string) (string, error) {
-	client, err := c.connect()
+	cfg := &ssh.ClientConfig{
+		User:            c.user,
+		Auth:            []ssh.AuthMethod{ssh.Password(c.password)},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+	}
+	client, err := ssh.Dial("tcp", fmt.Sprintf("%s:%d", c.host, c.port), cfg)
 	if err != nil {
-		return "", fmt.Errorf("ssh connect: %w", err)
+		return "", err
 	}
 	defer client.Close()
 
 	session, err := client.NewSession()
 	if err != nil {
-		return "", fmt.Errorf("ssh session: %w", err)
+		return "", err
 	}
 	defer session.Close()
 
@@ -68,65 +48,25 @@ func (c *SSHClient) Exec(cmd string) (string, error) {
 	return string(out), err
 }
 
-func (c *SSHClient) DeployAgent(serverAddr, token, name string, backbone bool) (string, error) {
-	steps := make([]string, 0)
-
-	// Step 1: Stop + download agent from Worker CDN
-	steps = append(steps, "download binary")
-	dlCmd := "systemctl stop mesnet-agent 2>/dev/null; curl -fsSL https://meshnet.kisectool.com/mesnet-agent-linux-amd64 -o /usr/local/bin/mesnet-agent && chmod +x /usr/local/bin/mesnet-agent"
-	if out, err := c.Exec(dlCmd); err != nil {
-		return joinSteps(steps), fmt.Errorf("download: %w (%s)", err, out)
-	}
-
-	// Step 2: Write systemd unit
-	steps = append(steps, "write systemd unit")
-	backboneFlag := ""
-	if !backbone {
-		backboneFlag = " \\\n  --backbone=false"
-	}
-
-	unit := fmt.Sprintf(`[Unit]
-Description=MeshNet Agent
-After=network-online.target
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/mesnet-agent \
-  --server wss://YOUR_SERVER/ws/agent/%s \
-  --listen :443 \
-  --name "%s"%s
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target`, token, name, backboneFlag)
-
-	writeUnit := fmt.Sprintf("cat > /etc/systemd/system/mesnet-agent.service <<'EOF'\n%s\nEOF", unit)
-	if out, err := c.Exec(writeUnit); err != nil {
-		return joinSteps(steps), fmt.Errorf("write unit: %w (%s)", err, out)
-	}
-
-	// Step 3: Start service
-	steps = append(steps, "start service")
-	if out, err := c.Exec("systemctl daemon-reload && systemctl enable mesnet-agent && systemctl start mesnet-agent"); err != nil {
-		return joinSteps(steps), fmt.Errorf("start: %w (%s)", err, out)
-	}
-
-	steps = append(steps, "done")
-	return joinSteps(steps), nil
-}
-
+// TestConnection checks if SSH is reachable.
 func (c *SSHClient) TestConnection() (string, error) {
 	return c.Exec("echo ok && uname -a")
 }
 
-func joinSteps(steps []string) string {
-	result := ""
-	for i, s := range steps {
-		if i > 0 {
-			result += " → "
-		}
-		result += s
+// DeployAgent installs the agent and systemd service on the remote host.
+func (c *SSHClient) DeployAgent(serverAddr, token, name string, backbone bool) (string, error) {
+	bf := ""
+	if !backbone {
+		bf = " \\\n  --backbone=false"
 	}
-	return result
+
+	script := fmt.Sprintf(
+		"systemctl stop mesnet-agent 2>/dev/null; "+
+			"curl -fsSL https://meshnet.kisectool.com/mesnet-agent-linux-amd64 -o /usr/local/bin/mesnet-agent && "+
+			"chmod +x /usr/local/bin/mesnet-agent && "+
+			"printf '[Unit]\\nDescription=MeshNet Agent\\nAfter=network-online.target\\n[Service]\\nType=simple\\nExecStart=/usr/local/bin/mesnet-agent --server ws://%%s/ws/agent/%%s --listen :443 --name \"%%s\"%%s\\nRestart=always\\n[Install]\\nWantedBy=multi-user.target\\n' > /etc/systemd/system/mesnet-agent.service && "+
+			"systemctl daemon-reload && systemctl enable --now mesnet-agent",
+		serverAddr, token, name, bf)
+
+	return c.Exec(script)
 }

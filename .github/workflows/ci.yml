@@ -2,10 +2,8 @@ name: CI/CD
 
 on:
   push:
-    branches: [main]
+    branches: [master]
     tags: ['v*']
-  pull_request:
-    branches: [main]
 
 jobs:
   # ── Go Server ──
@@ -19,9 +17,12 @@ jobs:
           go-version: "1.22"
 
       - name: Build server
-        run: CGO_ENABLED=1 go build -o mesnet-server ./cmd/server/
+        run: |
+          VER=${GITHUB_REF##*/}
+          [ -z "$VER" ] && VER="dev"
+          CGO_ENABLED=1 go build -ldflags "-X github.com/mesnet/mesnet/internal/version.Current=${VER}" -o mesnet-server ./cmd/server/
 
-      - name: Upload server artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: mesnet-server
@@ -38,10 +39,16 @@ jobs:
           go-version: "1.22"
 
       - name: Build agent (linux/amd64)
-        run: GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o mesnet-agent-linux-amd64 ./cmd/agent/
+        run: |
+          VER=${GITHUB_REF##*/}
+          [ -z "$VER" ] && VER="dev"
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-X github.com/mesnet/mesnet/internal/version.Current=${VER}" -o mesnet-agent-linux-amd64 ./cmd/agent/
 
       - name: Build agent (linux/arm64)
-        run: GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o mesnet-agent-linux-arm64 ./cmd/agent/
+        run: |
+          VER=${GITHUB_REF##*/}
+          [ -z "$VER" ] && VER="dev"
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "-X github.com/mesnet/mesnet/internal/version.Current=${VER}" -o mesnet-agent-linux-arm64 ./cmd/agent/
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -60,10 +67,16 @@ jobs:
           go-version: "1.22"
 
       - name: Build agent (darwin/amd64)
-        run: GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -o mesnet-agent-darwin-amd64 ./cmd/agent/
+        run: |
+          VER=${GITHUB_REF##*/}
+          [ -z "$VER" ] && VER="dev"
+          GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-X github.com/mesnet/mesnet/internal/version.Current=${VER}" -o mesnet-agent-darwin-amd64 ./cmd/agent/
 
       - name: Build agent (darwin/arm64)
-        run: GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o mesnet-agent-darwin-arm64 ./cmd/agent/
+        run: |
+          VER=${GITHUB_REF##*/}
+          [ -z "$VER" ] && VER="dev"
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "-X github.com/mesnet/mesnet/internal/version.Current=${VER}" -o mesnet-agent-darwin-arm64 ./cmd/agent/
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -84,11 +97,8 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build
-        run: npm run build
+      - name: Install & Build
+        run: npm ci && npm run build
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -107,10 +117,7 @@ jobs:
       - uses: actions/download-artifact@v4
 
       - name: Package web dist
-        run: |
-          cd mesnet-web
-          tar czf ../mesnet-web.tar.gz .
-          cd ..
+        run: cd mesnet-web && tar czf ../mesnet-web.tar.gz .
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -123,3 +130,20 @@ jobs:
             mesnet-web.tar.gz
           draft: false
           generate_release_notes: true
+
+  # ── Deploy Worker (after release) ──
+  deploy-worker:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Deploy to Cloudflare
+        run: npx wrangler deploy deploy/worker.js
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
