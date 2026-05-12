@@ -130,6 +130,7 @@ export default function Servers() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-bold">服务器管理</h2>
+        {latestVer && <span className="text-[10px] text-gray-500 bg-gray-800 px-2 py-0.5 rounded ml-2">v{latestVer}</span>}
         <div className="flex gap-2">
           <button onClick={handleUpdateAll} className="px-3 py-1.5 text-xs bg-amber-600/20 text-amber-400 rounded hover:bg-amber-600/40 transition-colors">
             更新全部 Agent
@@ -224,12 +225,10 @@ export default function Servers() {
                 <button onClick={() => handleDelete(s.id)} className="px-2 py-1 text-[10px] bg-red-600/20 text-red-400 rounded hover:bg-red-600/40">删除</button>
               </div>
             </div>
-            {s.version && (
               <div className="mt-2 text-[10px] text-gray-500">
-                版本: {s.version}
-                {s.version !== latestVer && s.online && <span className="text-amber-400 ml-1">(可更新)</span>}
+                版本: {s.version || '-'}
+                {s.version && s.version !== latestVer && s.online && <span className="text-amber-400 ml-1">(可更新)</span>}
               </div>
-            )}
           </div>
         ))}
         {cloudServers.length === 0 && <p className="text-xs text-gray-500 py-4 text-center">暂无云服务器</p>}
