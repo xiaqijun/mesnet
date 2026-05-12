@@ -16,7 +16,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentVersion = "v1.0.0"
+const CurrentVersion = "v1.0.4"
 
 const ReleaseBase = "https://meshnet.kisectool.com"
 

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { usePolling } from '../hooks/usePolling'
 import StatusBadge from '../components/StatusBadge'
 import DeployModal from '../components/DeployModal'
@@ -8,6 +8,8 @@ export default function Servers() {
   const [deployScript, setDeployScript] = useState('')
   const [showDeploy, setShowDeploy] = useState(false)
   const [sshResult, setSshResult] = useState(null)
+  const [latestVer, setLatestVer] = useState('')
+  useEffect(() => { fetch('/api/agents/versions').then(r => r.json()).then(d => setLatestVer(d.server_version || '')) }, [])
   const [showAddCloud, setShowAddCloud] = useState(false)
   const [showAddLeaf, setShowAddLeaf] = useState(false)
   const [selectedBackbone, setSelectedBackbone] = useState(null)
@@ -93,7 +95,8 @@ export default function Servers() {
     }
   }
 
-  const handleUpdate = async (id) => {
+  const handleUpdate = async (id, ver) => {
+    if (ver === latestVer) { alert('已是最新版本'); return }
     const res = await fetch('/api/agents/update', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -111,7 +114,8 @@ export default function Servers() {
     alert(`已触发 ${data.updated} 个 Agent 更新`)
   }
 
-  const handleServerUpdate = async () => {
+  const handleServerUpdate = async (ver) => {
+    if (ver === latestVer) { alert('控制端已是最新'); return }
     if (!confirm('确定更新控制端服务器？服务会短暂中断。')) return
     await fetch('/api/server/update', { method: 'POST' })
     alert('服务端更新中，稍后刷新页面...')
@@ -130,7 +134,7 @@ export default function Servers() {
           <button onClick={handleUpdateAll} className="px-3 py-1.5 text-xs bg-amber-600/20 text-amber-400 rounded hover:bg-amber-600/40 transition-colors">
             更新全部 Agent
           </button>
-          <button onClick={handleServerUpdate} className="px-3 py-1.5 text-xs bg-purple-600/20 text-purple-400 rounded hover:bg-purple-600/40 transition-colors">
+          <button onClick={() => handleServerUpdate(latestVer)} className="px-3 py-1.5 text-xs bg-purple-600/20 text-purple-400 rounded hover:bg-purple-600/40 transition-colors">
             更新控制端
           </button>
           <button onClick={() => setShowAddCloud(!showAddCloud)} className="px-3 py-1.5 text-xs bg-emerald-600 hover:bg-emerald-500 text-white rounded transition-colors">
@@ -214,8 +218,8 @@ export default function Servers() {
               </div>
               <div className="flex gap-2">
                 <button onClick={() => handleDeploy(s.id, s.host)} className="px-2 py-1 text-[10px] bg-emerald-600/20 text-emerald-400 rounded hover:bg-emerald-600/40">部署</button>
-                {s.online && s.version && s.version !== 'v1.0.0' && (
-                  <button onClick={() => handleUpdate(s.id)} className="px-2 py-1 text-[10px] bg-amber-600/20 text-amber-400 rounded hover:bg-amber-600/40">更新</button>
+                {s.online && s.version && s.version !== latestVer && (
+                  <button onClick={() => handleUpdate(s.id, s.version)} className="px-2 py-1 text-[10px] bg-amber-600/20 text-amber-400 rounded hover:bg-amber-600/40">更新</button>
                 )}
                 <button onClick={() => handleDelete(s.id)} className="px-2 py-1 text-[10px] bg-red-600/20 text-red-400 rounded hover:bg-red-600/40">删除</button>
               </div>
@@ -223,7 +227,7 @@ export default function Servers() {
             {s.version && (
               <div className="mt-2 text-[10px] text-gray-500">
                 版本: {s.version}
-                {s.version !== 'v1.0.0' && s.online && <span className="text-amber-400 ml-1">(可更新)</span>}
+                {s.version !== latestVer && s.online && <span className="text-amber-400 ml-1">(可更新)</span>}
               </div>
             )}
           </div>
