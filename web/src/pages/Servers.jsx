@@ -74,24 +74,45 @@ export default function Servers() {
   }
 
   const handleDeploy = async (id, host) => {
-    // Try auto-deploy with SSH
-    const user = prompt('SSH 用户名:', 'root')
-    if (!user) return
-    const pass = prompt('SSH 密码:')
-    if (!pass) return
+    // Try cached credentials first
+    let creds = JSON.parse(localStorage.getItem('meshnet_ssh_' + host) || 'null')
+    if (!creds) {
+      const user = prompt('SSH 用户名:', 'root')
+      if (!user) return
+      const pass = prompt('SSH 密码:')
+      if (!pass) return
+      creds = { username: user, password: pass }
+    }
 
     const res = await fetch(`/api/servers/${id}/auto-deploy`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ host, username: user, password: pass }),
+      body: JSON.stringify({ host, ...creds }),
     })
     const data = await res.json()
 
     if (data.deployed) {
+      localStorage.setItem('meshnet_ssh_' + host, JSON.stringify(creds))
       alert(`部署成功! ${data.host}`)
     } else {
-      setDeployScript(data.script)
-      setShowDeploy(true)
+      localStorage.removeItem('meshnet_ssh_' + host)
+      const user = prompt('SSH 失败，重新输入用户名:', creds.username)
+      if (!user) return
+      const pass = prompt('SSH 密码:')
+      if (!pass) return
+      const retry = await fetch(`/api/servers/${id}/auto-deploy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ host, username: user, password: pass }),
+      })
+      const ret = await retry.json()
+      if (ret.deployed) {
+        localStorage.setItem('meshnet_ssh_' + host, JSON.stringify({ username: user, password: pass }))
+        alert(`部署成功! ${host}`)
+      } else {
+        setDeployScript(ret.script || data.script)
+        setShowDeploy(true)
+      }
     }
   }
 
