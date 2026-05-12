@@ -1,5 +1,23 @@
 const GH = "https://github.com/xiaqijun/mesnet/releases/latest/download";
-const VER = "v1.0.6";
+const GH_API = "https://api.github.com/repos/xiaqijun/mesnet/releases/latest";
+
+let cachedVer = "";
+let cacheTime = 0;
+
+async function getVersion() {
+  if (cachedVer && Date.now() - cacheTime < 300000) return cachedVer;
+  try {
+    const res = await fetch(GH_API, {
+      headers: { "User-Agent": "mesnet-worker", "Accept": "application/vnd.github+json" },
+    });
+    const data = await res.json();
+    cachedVer = data.tag_name || cachedVer || "v1.0.0";
+    cacheTime = Date.now();
+  } catch (e) {
+    // use cached value
+  }
+  return cachedVer;
+}
 
 export default {
   async fetch(request) {
@@ -7,13 +25,15 @@ export default {
     const path = url.pathname;
 
     if (path === "/" || path === "/install" || path === "/install.sh") {
-      return new Response(INSTALL_SCRIPT, {
-        headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "public, max-age=3600" },
+      const ver = await getVersion();
+      return new Response(INSTALL_SCRIPT.replace("__VERSION__", ver), {
+        headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "public, max-age=300" },
       });
     }
 
     if (path === "/version") {
-      return new Response(VER, {
+      const ver = await getVersion();
+      return new Response(ver, {
         headers: { "Content-Type": "text/plain", "Cache-Control": "no-cache" },
       });
     }
@@ -35,8 +55,7 @@ export default {
 const INSTALL_SCRIPT = `#!/bin/bash
 set -e
 BASE="https://meshnet.kisectool.com"
-
-LATEST=\$(curl -s "\${BASE}/version")
+LATEST="__VERSION__"
 
 CURRENT=\$(/usr/local/bin/mesnet-server --version 2>/dev/null || echo "")
 if [ -n "\$CURRENT" ] && [ "\$CURRENT" = "\$LATEST" ]; then
