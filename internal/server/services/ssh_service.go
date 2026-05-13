@@ -2,11 +2,11 @@ package services
 
 import (
 	"fmt"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 )
 
-// SSHClient wraps a single SSH connection for remote execution.
 type SSHClient struct {
 	host     string
 	port     int
@@ -16,31 +16,40 @@ type SSHClient struct {
 }
 
 func NewSSHClient(host string, port int, user, password string, privateKey []byte) *SSHClient {
-	return &SSHClient{
-		host:     host,
-		port:     port,
-		user:     user,
-		password: password,
-		key:      privateKey,
-	}
+	return &SSHClient{host: host, port: port, user: user, password: password, key: privateKey}
 }
 
-// Exec runs a command on the remote host.
-func (c *SSHClient) Exec(cmd string) (string, error) {
+func (c *SSHClient) connect() (*ssh.Client, error) {
+	var auth []ssh.AuthMethod
+	if len(c.key) > 0 {
+		signer, err := ssh.ParsePrivateKey(c.key)
+		if err != nil {
+			return nil, fmt.Errorf("parse key: %w", err)
+		}
+		auth = append(auth, ssh.PublicKeys(signer))
+	} else {
+		auth = append(auth, ssh.Password(c.password))
+	}
+
 	cfg := &ssh.ClientConfig{
 		User:            c.user,
-		Auth:            []ssh.AuthMethod{ssh.Password(c.password)},
+		Auth:            auth,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         10 * time.Second,
 	}
-	client, err := ssh.Dial("tcp", fmt.Sprintf("%s:%d", c.host, c.port), cfg)
+	return ssh.Dial("tcp", fmt.Sprintf("%s:%d", c.host, c.port), cfg)
+}
+
+func (c *SSHClient) Exec(cmd string) (string, error) {
+	client, err := c.connect()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("connect: %w", err)
 	}
 	defer client.Close()
 
 	session, err := client.NewSession()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("session: %w", err)
 	}
 	defer session.Close()
 
@@ -48,25 +57,23 @@ func (c *SSHClient) Exec(cmd string) (string, error) {
 	return string(out), err
 }
 
-// TestConnection checks if SSH is reachable.
 func (c *SSHClient) TestConnection() (string, error) {
 	return c.Exec("echo ok && uname -a")
 }
 
-// DeployAgent installs the agent and systemd service on the remote host.
 func (c *SSHClient) DeployAgent(serverAddr, token, name string, backbone bool) (string, error) {
 	bf := ""
 	if !backbone {
-		bf = " \\\n  --backbone=false"
+		bf = " --backbone=false"
 	}
 
-	script := fmt.Sprintf(
+	cmd := fmt.Sprintf(
 		"systemctl stop mesnet-agent 2>/dev/null; "+
 			"curl -fsSL https://meshnet.kisectool.com/mesnet-agent-linux-amd64 -o /usr/local/bin/mesnet-agent && "+
 			"chmod +x /usr/local/bin/mesnet-agent && "+
-			"printf '[Unit]\\nDescription=MeshNet Agent\\nAfter=network-online.target\\n[Service]\\nType=simple\\nExecStart=/usr/local/bin/mesnet-agent --server ws://%%s/ws/agent/%%s --listen :443 --name \"%%s\"%%s\\nRestart=always\\n[Install]\\nWantedBy=multi-user.target\\n' > /etc/systemd/system/mesnet-agent.service && "+
+			"printf '[Unit]\\nDescription=MeshNet Agent\\nAfter=network-online.target\\n[Service]\\nType=simple\\nExecStart=/usr/local/bin/mesnet-agent --server ws://%s/ws/agent/%s --listen :443 --name \"%s\"%s\\nRestart=always\\n[Install]\\nWantedBy=multi-user.target\\n' > /etc/systemd/system/mesnet-agent.service && "+
 			"systemctl daemon-reload && systemctl enable --now mesnet-agent",
 		serverAddr, token, name, bf)
 
-	return c.Exec(script)
+	return c.Exec(cmd)
 }
