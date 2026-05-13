@@ -1,19 +1,21 @@
 const GH = "https://github.com/xiaqijun/mesnet/releases/latest/download";
-const VER = "v1.0.9";
+const VER = "v1.0.9"; // CI auto-replaces this on release
 
 export default {
   async fetch(request) {
     const url = new URL(request.url);
     const path = url.pathname;
 
+    if (path === "/version") {
+      return new Response(VER, {
+        headers: { "Content-Type": "text/plain", "Cache-Control": "no-cache" },
+      });
+    }
+
     if (path === "/" || path === "/install" || path === "/install.sh") {
       return new Response(INSTALL_SCRIPT.replace("__VERSION__", VER), {
         headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "public, max-age=300" },
       });
-    }
-
-    if (path === "/version") {
-      return new Response(VER, { headers: { "Content-Type": "text/plain", "Cache-Control": "no-cache" } });
     }
 
     const target = `${GH}${path}`;
@@ -43,16 +45,10 @@ fi
 
 echo ">>> 更新 \$CURRENT → \$LATEST"
 systemctl stop mesnet-server 2>/dev/null || true
-
-echo ">>> 下载控制端..."
 curl -# -L -o /usr/local/bin/mesnet-server "\${BASE}/mesnet-server"
 chmod +x /usr/local/bin/mesnet-server
-
-echo ">>> 下载前端..."
 mkdir -p /etc/mesnet/web/dist
 curl -# -L "\${BASE}/mesnet-web.tar.gz" | tar xz -C /etc/mesnet/web/dist
-
-echo ">>> 安装服务..."
 cat > /etc/systemd/system/mesnet-server.service <<'UNIT'
 [Unit]
 Description=MeshNet Control Plane
@@ -66,10 +62,7 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 UNIT
-
 systemctl daemon-reload
 systemctl enable --now mesnet-server
-
-IP=\$(curl -s ifconfig.me 2>/dev/null || hostname -I | awk '{print \$1}')
-echo ">>> 完成! http://\${IP}:8080"
+echo ">>> 完成! http://\$(curl -s ifconfig.me 2>/dev/null || hostname -I | awk '{print \$1}'):8080"
 `;
