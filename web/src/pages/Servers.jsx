@@ -151,7 +151,6 @@ export default function Servers() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-bold">服务器管理</h2>
-        {latestVer && <p className="text-[10px] text-gray-600 mt-0.5 mb-4">当前版本 {latestVer}</p>}
         <div className="flex gap-2">
           <button onClick={handleUpdateAll} className="px-3 py-1.5 text-xs bg-amber-600/20 text-amber-400 rounded hover:bg-amber-600/40 transition-colors">
             更新全部 Agent

@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router-dom'
+import { useState, useEffect } from 'react'
 
 const nav = [
   { to: '/', label: '仪表盘' },
@@ -10,6 +11,10 @@ const nav = [
 ]
 
 export default function Layout({ children }) {
+  const [ver, setVer] = useState('')
+  useEffect(() => {
+    fetch('/api/agents/versions').then(r => r.json()).then(d => setVer(d.server_version || ''))
+  }, [])
   return (
     <div className="flex h-screen">
       <aside className="w-56 bg-gray-900 border-r border-gray-800 flex flex-col">
@@ -35,6 +40,7 @@ export default function Layout({ children }) {
             </NavLink>
           ))}
         </nav>
+        {ver && <div className="p-3 border-t border-gray-800 text-[10px] text-gray-600">{ver}</div>}
       </aside>
       <main className="flex-1 overflow-auto p-6">{children}</main>
     </div>
