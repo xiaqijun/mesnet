@@ -73,46 +73,43 @@ export default function Servers() {
     await fetch(`/api/nodes/${id}`, { method: 'DELETE' })
   }
 
-  const handleDeploy = async (id, host) => {
-    // Try cached credentials first
-    let creds = JSON.parse(localStorage.getItem('meshnet_ssh_' + host) || 'null')
-    if (!creds) {
-      const user = prompt('SSH 用户名:', 'root')
-      if (!user) return
-      const pass = prompt('SSH 密码:')
-      if (!pass) return
-      creds = { username: user, password: pass }
-    }
+  const [deployModal, setDeployModal] = useState(null) // { id, host, creds }
+  const [deployUser, setDeployUser] = useState('root')
+  const [deployPass, setDeployPass] = useState('')
+  const [deployErr, setDeployErr] = useState('')
+  const [deploying, setDeploying] = useState(false)
 
+  const handleDeploy = async (id, host) => {
+    const creds = JSON.parse(localStorage.getItem('meshnet_ssh_' + host) || 'null')
+    if (creds) {
+      setDeployUser(creds.username)
+      setDeployPass(creds.password)
+      setDeployModal({ id, host, cached: true })
+      tryAutoDeploy(id, host, creds.username, creds.password)
+    } else {
+      setDeployUser('root')
+      setDeployPass('')
+      setDeployErr('')
+      setDeployModal({ id, host, cached: false })
+    }
+  }
+
+  const tryAutoDeploy = async (id, host, username, password) => {
+    setDeploying(true)
+    setDeployErr('')
     const res = await fetch(`/api/servers/${id}/auto-deploy`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ host, ...creds }),
+      body: JSON.stringify({ host, username, password }),
     })
     const data = await res.json()
-
+    setDeploying(false)
     if (data.deployed) {
-      localStorage.setItem('meshnet_ssh_' + host, JSON.stringify(creds))
+      localStorage.setItem('meshnet_ssh_' + host, JSON.stringify({ username, password }))
+      setDeployModal(null)
       alert(`部署成功! ${data.host}`)
     } else {
-      localStorage.removeItem('meshnet_ssh_' + host)
-      const user = prompt('SSH 失败，重新输入用户名:', creds.username)
-      if (!user) return
-      const pass = prompt('SSH 密码:')
-      if (!pass) return
-      const retry = await fetch(`/api/servers/${id}/auto-deploy`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ host, username: user, password: pass }),
-      })
-      const ret = await retry.json()
-      if (ret.deployed) {
-        localStorage.setItem('meshnet_ssh_' + host, JSON.stringify({ username: user, password: pass }))
-        alert(`部署成功! ${host}`)
-      } else {
-        setDeployScript(ret.script || data.script)
-        setShowDeploy(true)
-      }
+      setDeployErr(data.error || 'SSH 连接失败')
     }
   }
 
@@ -284,6 +281,29 @@ export default function Servers() {
       </div>
 
       <DeployModal open={showDeploy} onClose={() => setShowDeploy(false)} script={deployScript} />
+
+      {/* SSH Credentials Modal */}
+      {deployModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setDeployModal(null)}>
+          <form onSubmit={(e) => { e.preventDefault(); tryAutoDeploy(deployModal.id, deployModal.host, deployUser, deployPass) }}
+            className="bg-gray-900 border border-gray-700 rounded-xl w-80 p-4" onClick={e => e.stopPropagation()}>
+            <h3 className="text-sm font-bold text-gray-200 mb-3">SSH 部署 {deployModal.host}</h3>
+            <input className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-xs text-gray-200 mb-2"
+              placeholder="用户名" value={deployUser} onChange={e => setDeployUser(e.target.value)} />
+            <input className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-xs text-gray-200 mb-3"
+              type="password" placeholder="密码" value={deployPass} onChange={e => setDeployPass(e.target.value)} />
+            {deployErr && <p className="text-[11px] text-red-400 mb-2">{deployErr}</p>}
+            <div className="flex gap-2">
+              <button type="submit" disabled={deploying}
+                className="flex-1 px-3 py-2 text-xs bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded">
+                {deploying ? '连接中...' : '部署'}
+              </button>
+              <button type="button" onClick={() => setDeployModal(null)}
+                className="px-3 py-2 text-xs text-gray-400 hover:text-gray-200">取消</button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {/* SSH Result */}
       {sshResult && (

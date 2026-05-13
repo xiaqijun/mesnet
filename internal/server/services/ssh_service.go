@@ -27,8 +27,19 @@ func (c *SSHClient) connect() (*ssh.Client, error) {
 			return nil, fmt.Errorf("parse key: %w", err)
 		}
 		auth = append(auth, ssh.PublicKeys(signer))
-	} else {
+	}
+	if c.password != "" {
 		auth = append(auth, ssh.Password(c.password))
+		auth = append(auth, ssh.KeyboardInteractive(func(user, instruction string, questions []string, echos []bool) ([]string, error) {
+			answers := make([]string, len(questions))
+			for i := range questions {
+				answers[i] = c.password
+			}
+			return answers, nil
+		}))
+	}
+	if len(auth) == 0 {
+		return nil, fmt.Errorf("no auth method")
 	}
 
 	cfg := &ssh.ClientConfig{
