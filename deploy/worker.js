@@ -1,5 +1,5 @@
 const GH = "https://github.com/xiaqijun/mesnet/releases/latest/download";
-const VER = "v1.0.10"; // CI auto-replaces this on release
+const VER = "v1.0.12"; // CI auto-replaces this on release
 
 export default {
   async fetch(request) {
