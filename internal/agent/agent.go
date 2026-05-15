@@ -62,10 +62,10 @@ func New(name, serverURL, listenAddr string, backbone bool) *Agent {
 func (a *Agent) Start() error {
 	// Only backbone nodes listen for incoming peer connections
 	if a.cfg.Backbone {
-		if err := a.peers.Listen(); err != nil {
+		if port, err := a.peers.Listen(); err != nil {
 			log.Printf("peer listen failed (non-fatal): %v", err)
-		} else {
-			log.Printf("backbone node: listening on %s", a.cfg.ListenAddr)
+		} else if port > 0 {
+			log.Printf("backbone node: listening on :%d", port)
 		}
 	} else {
 		log.Printf("leaf node: outbound-only mode")

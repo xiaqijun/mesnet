@@ -1,54 +1,60 @@
 package agent
 
 import (
-	"fmt"
 	"log"
+	"net"
 	"net/http"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 )
 
-// Peer represents a direct WebSocket connection to another Agent.
 type Peer struct {
 	NodeID   uint
 	Conn     *websocket.Conn
-	Outbound bool // true=we dialed out, false=they dialed in
-	mu       sync.Mutex
+	LastSeen time.Time
 }
 
-// PeerManager handles Agent-to-Agent direct WSS connections.
 type PeerManager struct {
-	listenAddr string
-	backbone   bool // only backbone nodes accept incoming connections
 	peers      map[uint]*Peer
+	listenAddr string
+	backbone   bool
 	mu         sync.RWMutex
 }
 
 func NewPeerManager(listenAddr string, backbone bool) *PeerManager {
 	return &PeerManager{
+		peers:      make(map[uint]*Peer),
 		listenAddr: listenAddr,
 		backbone:   backbone,
-		peers:      make(map[uint]*Peer),
 	}
 }
 
-// Listen starts the WSS server for incoming peer connections.
-// Only called if backbone=true.
-func (pm *PeerManager) Listen() error {
+func (pm *PeerManager) Listen() (int, error) {
 	if !pm.backbone {
-		return nil
+		return 0, nil
 	}
-
-	http.HandleFunc("/agent-peer/", pm.handleIncoming)
-	go func() {
-		log.Printf("peer listener starting on %s", pm.listenAddr)
-		if err := http.ListenAndServeTLS(pm.listenAddr, "", "", nil); err != nil {
-			log.Printf("peer listener error: %v", err)
+	ports := []int{443, 444, 8443, 9443, 10443}
+	if pm.listenAddr != "" && pm.listenAddr != ":443" {
+		if p, err := strconv.Atoi(strings.TrimPrefix(pm.listenAddr, ":")); err == nil {
+			ports = append([]int{p}, ports...)
 		}
-	}()
-	return nil
+	}
+	for _, port := range ports {
+		ln, err := net.Listen("tcp", ":"+_itoa(port))
+		if err != nil {
+			continue
+		}
+		log.Printf("peer listener started on :%d", port)
+		http.HandleFunc("/agent-peer/", pm.handleIncoming)
+		go func() { http.Serve(ln, nil) }()
+		return port, nil
+	}
+	log.Printf("peer listener: no port available")
+	return 0, nil
 }
 
 func (pm *PeerManager) handleIncoming(w http.ResponseWriter, r *http.Request) {
@@ -57,74 +63,38 @@ func (pm *PeerManager) handleIncoming(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-
-	// Token from URL path: /agent-peer/<token>
 	token := r.URL.Path[len("/agent-peer/"):]
-	log.Printf("incoming peer connection, token=%s...", token[:8]+"...")
-
-	// Create peer entry — nodeID will be set after first message
-	peer := &Peer{
-		Conn:     conn,
-		Outbound: false,
+	n := len(token)
+	if n > 8 {
+		n = 8
 	}
-
+	log.Printf("incoming peer connection, token=%s...", token[:n])
 	pm.mu.Lock()
-	pm.peers[0] = peer // placeholder, updated on identification
+	pm.peers[0] = &Peer{Conn: conn, LastSeen: time.Now()}
 	pm.mu.Unlock()
 }
 
-// Connect initiates a WSS connection to another Agent (outbound).
 func (pm *PeerManager) Connect(nodeID uint, addr, token string) error {
-	url := fmt.Sprintf("wss://%s/agent-peer/%s", addr, token)
-
-	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	conn, _, err := websocket.DefaultDialer.Dial("ws://"+addr+"/agent-peer/"+token, nil)
 	if err != nil {
-		return fmt.Errorf("peer connect %d at %s: %w", nodeID, addr, err)
+		return err
 	}
-
-	peer := &Peer{
-		NodeID:   nodeID,
-		Conn:     conn,
-		Outbound: true,
-	}
-
 	pm.mu.Lock()
-	pm.peers[nodeID] = peer
+	pm.peers[nodeID] = &Peer{NodeID: nodeID, Conn: conn, LastSeen: time.Now()}
 	pm.mu.Unlock()
-
 	log.Printf("connected to peer %d at %s", nodeID, addr)
 	return nil
 }
 
-// Disconnect closes a peer connection.
 func (pm *PeerManager) Disconnect(nodeID uint) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-
 	if p, ok := pm.peers[nodeID]; ok {
 		p.Conn.Close()
 		delete(pm.peers, nodeID)
-		log.Printf("disconnected from peer %d", nodeID)
 	}
 }
 
-// SendRaw sends a binary frame to a peer.
-func (pm *PeerManager) SendRaw(nodeID uint, data []byte) error {
-	pm.mu.RLock()
-	p, ok := pm.peers[nodeID]
-	pm.mu.RUnlock()
-
-	if !ok {
-		return fmt.Errorf("peer %d not connected", nodeID)
-	}
-
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	return p.Conn.WriteMessage(websocket.BinaryMessage, data)
-}
-
-// ListPeers returns IDs of all connected peers.
 func (pm *PeerManager) ListPeers() []uint {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
@@ -135,15 +105,17 @@ func (pm *PeerManager) ListPeers() []uint {
 	return ids
 }
 
-// IsConnected checks if we have a peer connection to a node.
-func (pm *PeerManager) IsConnected(nodeID uint) bool {
+func (pm *PeerManager) SendRaw(nodeID uint, data []byte) error {
 	pm.mu.RLock()
-	defer pm.mu.RUnlock()
-	_, ok := pm.peers[nodeID]
-	return ok
+	p := pm.peers[nodeID]
+	pm.mu.RUnlock()
+	if p == nil {
+		return nil
+	}
+	p.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	return p.Conn.WriteMessage(websocket.BinaryMessage, data)
 }
 
-// Close shuts down all peer connections.
 func (pm *PeerManager) Close() {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
@@ -152,3 +124,5 @@ func (pm *PeerManager) Close() {
 		delete(pm.peers, id)
 	}
 }
+
+func _itoa(n int) string { return strconv.Itoa(n) }
