@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -174,7 +175,12 @@ func (r *Registry) Run() {
 
 // HandleAgent handles a WebSocket upgrade for an Agent.
 func HandleAgent(w http.ResponseWriter, r *http.Request, registry *Registry, db *gorm.DB) {
-	token := r.PathValue("token")
+	// Extract token from URL: /ws/agent/<token>
+	parts := splitPath(r.URL.Path)
+	var token string
+	if len(parts) >= 3 && parts[len(parts)-2] == "agent" {
+		token = parts[len(parts)-1]
+	}
 
 	// Validate token and find node
 	var node struct {
@@ -262,4 +268,8 @@ func HandleAgent(w http.ResponseWriter, r *http.Request, registry *Registry, db 
 			}
 		}
 	}
+}
+
+func splitPath(path string) []string {
+	return strings.FieldsFunc(path, func(r rune) bool { return r == '/' })
 }
