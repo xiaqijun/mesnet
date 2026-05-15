@@ -1,5 +1,5 @@
 const GH = "https://github.com/xiaqijun/mesnet/releases/latest/download";
-const VER = "v1.0.16"; // CI auto-replaces this on release
+const VER = "v1.0.16";
 
 export default {
   async fetch(request) {
@@ -18,17 +18,22 @@ export default {
       });
     }
 
+    // Binary downloads: check Cloudflare edge cache first
+    const cacheKey = new Request(url.toString(), request);
+    const cache = caches.default;
+    let res = await cache.match(cacheKey);
+    if (res) return res;
+
     const target = `${GH}${path}`;
-    const res = await fetch(target);
+    res = await fetch(target);
     if (!res.ok) return new Response("Not Found", { status: 404 });
 
-    return new Response(res.body, {
-      headers: {
-        "Content-Type": "application/octet-stream",
-        "Content-Length": res.headers.get("Content-Length") || "",
-        "Cache-Control": "public, max-age=86400",
-      },
-    });
+    // Clone so we can both put in cache and return
+    const cached = new Response(res.body, res);
+    cached.headers.set("Cache-Control", "public, max-age=86400");
+    request.ctx?.waitUntil(cache.put(cacheKey, cached.clone()));
+
+    return cached;
   },
 };
 

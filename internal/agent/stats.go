@@ -76,11 +76,13 @@ func (s *StatsCollector) report() {
 	s.mu.Unlock()
 
 	// Add latency info from probe
-	for nodeID, lat := range s.agent.probe.Latencies() {
-		key := "tun-" + itoaUint(nodeID)
-		if t, ok := tunnels[key]; ok {
-			t.LatencyMs = lat
-			tunnels[key] = t
+	if s.agent.probe != nil {
+		for nodeID, lat := range s.agent.probe.Latencies() {
+			key := "tun-" + itoaUint(nodeID)
+			if t, ok := tunnels[key]; ok {
+				t.LatencyMs = lat
+				tunnels[key] = t
+			}
 		}
 	}
 
