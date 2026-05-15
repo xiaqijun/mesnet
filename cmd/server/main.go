@@ -83,6 +83,7 @@ func main() {
 		api.POST("/servers/leaf", handlers.AddLeafNode(db, registry))
 		api.GET("/servers/:id/deploy", handlers.GetServerDeploy(db))
 		api.POST("/servers/:id/auto-deploy", handlers.AutoDeployNode(db))
+		api.POST("/servers/test-ssh", handlers.TestSSH())
 
 		// Agent updates
 		api.GET("/agents/versions", handlers.GetAgentVersions(db, registry))

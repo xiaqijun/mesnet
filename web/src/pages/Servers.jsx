@@ -8,6 +8,7 @@ export default function Servers() {
   const [deployScript, setDeployScript] = useState('')
   const [showDeploy, setShowDeploy] = useState(false)
   const [sshResult, setSshResult] = useState(null)
+  const [sshTest, setSshTest] = useState(null)
   const [latestVer, setLatestVer] = useState('')
   useEffect(() => { fetch('/api/agents/versions').then(r => r.json()).then(d => setLatestVer(d.server_version || '')) }, [])
   const [showAddCloud, setShowAddCloud] = useState(false)
@@ -181,6 +182,26 @@ export default function Servers() {
           </div>
           <input className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-xs text-gray-200" placeholder="用户名 (默认 root)" value={cloudForm.username} onChange={(e) => setCloudForm({ ...cloudForm, username: e.target.value })} />
           <input className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-xs text-gray-200" placeholder="密码" type="password" value={cloudForm.password} onChange={(e) => setCloudForm({ ...cloudForm, password: e.target.value })} />
+          <div className="col-span-2 flex items-center gap-2">
+            <button type="button" onClick={async () => {
+              setSshTest({ testing: true })
+              const res = await fetch('/api/servers/test-ssh', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ host: cloudForm.host, username: cloudForm.username, password: cloudForm.password }),
+              })
+              const d = await res.json()
+              setSshTest({ testing: false, ok: d.ok, output: d.output, error: d.error })
+            }} className="px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-200 rounded">检测连接</button>
+            {sshTest && !sshTest.testing && (
+              <span className={`inline-block w-2 h-2 rounded-full ${sshTest.ok ? 'bg-emerald-400' : 'bg-red-400'}`} />
+            )}
+            {sshTest && !sshTest.testing && (
+              <span className={`text-[10px] ${sshTest.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+                {sshTest.ok ? '连接成功' : (sshTest.error || '连接失败')}
+              </span>
+            )}
+            {sshTest && sshTest.testing && <span className="text-[10px] text-gray-500">检测中...</span>}
+          </div>
           <label className="flex items-center gap-2 text-xs text-gray-400 col-span-2">
             <input type="checkbox" checked={cloudForm.auto_deploy} onChange={(e) => setCloudForm({ ...cloudForm, auto_deploy: e.target.checked })} />
             添加后自动 SSH 部署 Agent
