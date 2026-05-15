@@ -75,6 +75,7 @@ func main() {
 		api.GET("/stats", handlers.GetDashboardStats(db, registry))
 		api.GET("/topology", handlers.GetTopology(db, registry))
 		api.GET("/audit", handlers.ListAudit(db))
+		api.GET("/logs", handlers.GetLogs())
 		api.GET("/monitor/total", handlers.GetTotalTraffic(db))
 
 		// Server management

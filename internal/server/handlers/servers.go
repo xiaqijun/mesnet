@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/mesnet/mesnet/internal/server/logwatch"
 	"github.com/mesnet/mesnet/internal/server/models"
 	"github.com/mesnet/mesnet/internal/server/services"
 	"github.com/mesnet/mesnet/internal/server/ws"
@@ -120,6 +121,7 @@ func AddCloudServer(db *gorm.DB, registry *ws.Registry) gin.HandlerFunc {
 				resp["deployed"] = false
 				resp["ssh_error"] = strings.Join(logs, "; ")
 				resp["script"] = onelinerDeploy(token, node.Name, c.Request.Host, true)
+				logwatch.Error("ssh", fmt.Sprintf("deploy %s: %s", node.Name, strings.Join(logs, "; ")))
 			}
 		} else {
 			resp["script"] = onelinerDeploy(token, node.Name, c.Request.Host, true)

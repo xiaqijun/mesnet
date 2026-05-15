@@ -2,12 +2,14 @@ package ws
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/mesnet/mesnet/internal/server/logwatch"
 	"gorm.io/gorm"
 )
 
@@ -198,6 +200,7 @@ func HandleAgent(w http.ResponseWriter, r *http.Request, registry *Registry, db 
 	}
 
 	registry.Register(node.ID, ac)
+	logwatch.Info("agent", fmt.Sprintf("node %d (%s) connected", node.ID, node.Name))
 	defer func() {
 		registry.Unregister(node.ID)
 		ws.Close()
