@@ -2,7 +2,6 @@ import { Routes, Route } from 'react-router-dom'
 import Layout from './components/Layout'
 import Dashboard from './pages/Dashboard'
 import Servers from './pages/Servers'
-import Nodes from './pages/Nodes'
 import NodeDetail from './pages/NodeDetail'
 import Tunnels from './pages/Tunnels'
 import TunnelDetail from './pages/TunnelDetail'
@@ -16,7 +15,6 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/servers" element={<Servers />} />
-        <Route path="/nodes" element={<Nodes />} />
         <Route path="/nodes/:id" element={<NodeDetail />} />
         <Route path="/tunnels" element={<Tunnels />} />
         <Route path="/tunnels/:id" element={<TunnelDetail />} />

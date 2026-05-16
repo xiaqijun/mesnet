@@ -3,8 +3,7 @@ import { useState, useEffect } from 'react'
 
 const nav = [
   { to: '/', label: '仪表盘' },
-  { to: '/servers', label: '服务器' },
-  { to: '/nodes', label: '节点' },
+  { to: '/servers', label: '节点' },
   { to: '/tunnels', label: '隧道' },
   { to: '/topology', label: '拓扑' },
   { to: '/monitor', label: '流量监控' },

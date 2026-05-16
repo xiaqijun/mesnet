@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { usePolling } from '../hooks/usePolling'
 import StatusBadge from '../components/StatusBadge'
 import DeployModal from '../components/DeployModal'
@@ -148,7 +149,7 @@ export default function Servers() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl font-bold">服务器管理</h2>
+        <h2 className="text-xl font-bold">节点管理</h2>
         <div className="flex gap-2">
           <button onClick={handleUpdateAll} className="px-3 py-1.5 text-xs bg-amber-600/20 text-amber-400 rounded hover:bg-amber-600/40 transition-colors">
             更新全部 Agent
@@ -244,7 +245,7 @@ export default function Servers() {
             <div className="flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-3 mb-1">
-                  <span className="text-sm font-medium text-gray-200">{s.name}</span>
+                  <Link to={`/nodes/${s.id}`} className="text-sm font-medium text-emerald-400 hover:underline">{s.name}</Link>
                   <StatusBadge online={s.online} />
                   <span className="text-[10px] text-gray-500 bg-gray-800 px-1.5 py-0.5 rounded">骨干</span>
                 </div>
@@ -283,7 +284,7 @@ export default function Servers() {
             <div className="flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-3">
-                  <span className="text-xs font-medium text-gray-200">{n.name}</span>
+                  <Link to={`/nodes/${n.id}`} className="text-xs font-medium text-blue-400 hover:underline">{n.name}</Link>
                   <StatusBadge online={n.online} />
                   <span className="text-[10px] text-gray-500 bg-gray-800 px-1.5 py-0.5 rounded">叶子</span>
                 </div>
