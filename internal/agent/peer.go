@@ -19,10 +19,11 @@ type Peer struct {
 }
 
 type PeerManager struct {
-	peers      map[uint]*Peer
+	peers     map[uint]*Peer
 	listenAddr string
-	backbone   bool
-	mu         sync.RWMutex
+	backbone  bool
+	onRecv    func(nodeID uint, frame []byte) // called when data received from a peer
+	mu        sync.RWMutex
 }
 
 func NewPeerManager(listenAddr string, backbone bool) *PeerManager {
@@ -31,6 +32,11 @@ func NewPeerManager(listenAddr string, backbone bool) *PeerManager {
 		listenAddr: listenAddr,
 		backbone:   backbone,
 	}
+}
+
+// SetOnRecv sets the callback for incoming peer data.
+func (pm *PeerManager) SetOnRecv(fn func(nodeID uint, frame []byte)) {
+	pm.onRecv = fn
 }
 
 func (pm *PeerManager) Listen() (int, error) {
@@ -72,6 +78,8 @@ func (pm *PeerManager) handleIncoming(w http.ResponseWriter, r *http.Request) {
 	pm.mu.Lock()
 	pm.peers[0] = &Peer{Conn: conn, LastSeen: time.Now()}
 	pm.mu.Unlock()
+	// Start reader for incoming data
+	go pm.readLoop(0, conn)
 }
 
 func (pm *PeerManager) Connect(nodeID uint, addr, token string) error {
@@ -83,6 +91,8 @@ func (pm *PeerManager) Connect(nodeID uint, addr, token string) error {
 	pm.peers[nodeID] = &Peer{NodeID: nodeID, Conn: conn, LastSeen: time.Now()}
 	pm.mu.Unlock()
 	log.Printf("connected to peer %d at %s", nodeID, addr)
+	// Start reader for incoming data
+	go pm.readLoop(nodeID, conn)
 	return nil
 }
 
@@ -122,6 +132,29 @@ func (pm *PeerManager) Close() {
 	for id, p := range pm.peers {
 		p.Conn.Close()
 		delete(pm.peers, id)
+	}
+}
+
+// readLoop reads binary frames from a peer connection and dispatches to onRecv.
+func (pm *PeerManager) readLoop(nodeID uint, conn *websocket.Conn) {
+	for {
+		msgType, data, err := conn.ReadMessage()
+		if err != nil {
+			log.Printf("peer %d read error: %v", nodeID, err)
+			pm.mu.Lock()
+			delete(pm.peers, nodeID)
+			pm.mu.Unlock()
+			return
+		}
+		if msgType != websocket.BinaryMessage || pm.onRecv == nil {
+			continue
+		}
+		pm.mu.RLock()
+		if p, ok := pm.peers[nodeID]; ok {
+			p.LastSeen = time.Now()
+		}
+		pm.mu.RUnlock()
+		pm.onRecv(nodeID, data)
 	}
 }
 

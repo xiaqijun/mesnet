@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"log"
+	"net"
 	"sync"
 )
 
@@ -71,6 +72,29 @@ func (a *Agent) Start() error {
 		log.Printf("leaf node: outbound-only mode")
 	}
 
+	// Handle incoming peer data: decrypt, forward to TUN, or relay
+	a.peers.SetOnRecv(func(nodeID uint, frame []byte) {
+		tun := NewTunnel(a)
+		plaintext, err := tun.ReceiveEncrypted(nodeID, frame)
+		if err != nil {
+			return
+		}
+
+		dstIP := extractDstIP(plaintext)
+		ownerID, nextHop := a.routes.Lookup(dstIP)
+
+		// Check if this IP belongs to one of our local subnets
+		if isLocalIP(a.tun.IP(), dstIP) || a.isInOurSubnets(dstIP) {
+			a.tun.Write(plaintext)
+			return
+		}
+
+		// Relay: forward to next hop if not for us
+		if nextHop != 0 && nextHop != nodeID {
+			tun.SendEncrypted(nextHop, plaintext)
+		}
+	})
+
 	// Connect to control plane
 	a.ws = NewWSClient(a.cfg.ServerURL, a.handler)
 	go a.ws.Connect()
@@ -110,10 +134,12 @@ func (a *Agent) HandleCommand(action string, args json.RawMessage) (any, error) 
 	case "route_add":
 		var params struct {
 			Subnet   string `json:"subnet"`
+			NodeID   uint   `json:"node_id"`
+			NextHop  uint   `json:"next_hop"`
 			TunnelID uint   `json:"tunnel_id"`
 		}
 		json.Unmarshal(args, &params)
-		return nil, a.routes.Add(params.Subnet)
+		return nil, a.routes.Add(params.Subnet, params.NodeID, params.NextHop)
 
 	case "route_del":
 		var params struct {
@@ -185,8 +211,36 @@ func (a *Agent) CollectStatus() map[string]any {
 }
 
 func (a *Agent) getSubnets() []string {
-	subnets, _ := a.routes.DetectSubnets()
-	return subnets
+	return a.routes.getSubnets()
+}
+
+func (a *Agent) getMyNodeID() uint {
+	// TODO: store node ID when control plane sends tun_setup with node_id
+	return 0
+}
+
+// isInOurSubnets checks if an IP belongs to any of our local subnets.
+func (a *Agent) isInOurSubnets(ip string) bool {
+	subnets := a.routes.getSubnets()
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return false
+	}
+	for _, s := range subnets {
+		_, cidr, err := net.ParseCIDR(s)
+		if err != nil {
+			continue
+		}
+		if cidr.Contains(parsed) {
+			return true
+		}
+	}
+	return false
+}
+
+// isLocalIP checks if an IP is the TUN IP or loopback.
+func isLocalIP(tunIP, ip string) bool {
+	return ip == tunIP || ip == "127.0.0.1" || ip == "::1"
 }
 
 func extractToken(url string) string {
