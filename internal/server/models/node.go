@@ -7,7 +7,8 @@ type Node struct {
 	Name         string    `gorm:"size:100;not null" json:"name"`
 	Host         string    `gorm:"size:255" json:"-"`
 	VirtualIP    string    `gorm:"size:45" json:"virtual_ip"`
-	Subnets      string    `gorm:"text" json:"subnets"`
+	Subnets      string    `gorm:"text" json:"subnets"`       // advertised subnets (unique, conflict-free)
+	LocalSubnets string    `gorm:"text" json:"local_subnets"` // raw detected subnets (may conflict)
 	AgentToken   string    `gorm:"size:64;uniqueIndex" json:"-"`
 	AgentVersion string    `gorm:"size:20" json:"agent_version"`
 	Connected    bool      `json:"connected"`

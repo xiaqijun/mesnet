@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"strings"
 	"time"
 
@@ -22,7 +23,7 @@ func AutoMesh(db *gorm.DB, registry *ws.Registry, nodeID uint) {
 	}
 
 	// Step 1: detect subnets from agent if not manually configured
-	if node.Subnets == "" || node.Subnets == "-" {
+	if node.LocalSubnets == "" {
 		detectAndSaveSubnets(db, registry, &node)
 	}
 
@@ -98,6 +99,7 @@ func findSecondBest(nodes []models.Node, excludeID uint) *models.Node {
 }
 
 // detectAndSaveSubnets sends subnet_detect to agent and saves result to DB.
+// Detected subnets go to LocalSubnets. Conflict-free subnets go to Subnets.
 func detectAndSaveSubnets(db *gorm.DB, registry *ws.Registry, node *models.Node) {
 	result, err := registry.SendCmd(node.ID, "subnet_detect", nil, 10*time.Second)
 	if err != nil {
@@ -116,11 +118,71 @@ func detectAndSaveSubnets(db *gorm.DB, registry *ws.Registry, node *models.Node)
 	}
 
 	if len(data.Subnets) > 0 {
-		subnetsStr := strings.Join(data.Subnets, ",")
-		db.Model(node).Update("subnets", subnetsStr)
-		node.Subnets = subnetsStr
-		log.Printf("mesh: auto-detected subnets for %s: %s", node.Name, subnetsStr)
+		localStr := strings.Join(data.Subnets, ",")
+		db.Model(node).Updates(map[string]any{
+			"local_subnets": localStr,
+		})
+		node.LocalSubnets = localStr
+
+		// Resolve conflicts: only advertise subnets not claimed by other nodes
+		advertised := resolveSubnetConflicts(db, node.ID, data.Subnets)
+		if len(advertised) > 0 {
+			advStr := strings.Join(advertised, ",")
+			db.Model(node).Update("subnets", advStr)
+			node.Subnets = advStr
+		}
+		log.Printf("mesh: subnets for %s: local=%s advertised=%s", node.Name, localStr, node.Subnets)
 	}
+}
+
+// resolveSubnetConflicts removes subnets that overlap with existing nodes' advertised subnets.
+// Returns only the conflict-free subnets for this node.
+func resolveSubnetConflicts(db *gorm.DB, nodeID uint, subnets []string) []string {
+	var others []models.Node
+	db.Where("id != ? AND subnets != '' AND subnets != '-'", nodeID).Find(&others)
+
+	existing := make(map[string]bool)
+	for _, n := range others {
+		for _, s := range strings.Split(n.Subnets, ",") {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				existing[s] = true
+			}
+		}
+	}
+
+	var clean []string
+	for _, s := range subnets {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		if overlaps(s, existing) {
+			log.Printf("mesh: subnet conflict: %s for node %d (already in use)", s, nodeID)
+			continue
+		}
+		clean = append(clean, s)
+	}
+	return clean
+}
+
+// overlaps checks if a subnet overlaps with any existing subnet.
+func overlaps(subnet string, existing map[string]bool) bool {
+	_, cidr, err := net.ParseCIDR(subnet)
+	if err != nil {
+		return existing[subnet] // exact match for non-CIDR
+	}
+	for es := range existing {
+		_, eCidr, eErr := net.ParseCIDR(es)
+		if eErr != nil {
+			continue
+		}
+		// Check if either subnet contains the other
+		if cidr.Contains(eCidr.IP) || eCidr.Contains(cidr.IP) {
+			return true
+		}
+	}
+	return existing[subnet]
 }
 
 // createBackboneMesh connects two backbone nodes.
