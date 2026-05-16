@@ -130,44 +130,33 @@ func (r *RouteManager) getSubnets() []string {
 	return list
 }
 
-// DetectSubnets discovers local subnets on this machine.
+// DetectSubnets discovers the real physical NIC subnet (default route interface).
+// Virtual interfaces (docker, bridges, VPN) are explicitly excluded.
 func (r *RouteManager) DetectSubnets() ([]string, error) {
-	cmd := exec.Command("ip", "-o", "route", "show", "scope", "link")
-	out, err := cmd.CombinedOutput()
+	// Find the default route interface (the real physical NIC)
+	out, err := exec.Command("sh", "-c",
+		"ip route show default | awk '{print $5}' | head -1").CombinedOutput()
 	if err != nil {
 		return nil, err
 	}
-
-	lines := strings.Split(string(out), "\n")
-	subnets := make([]string, 0)
-	for _, line := range lines {
-		fields := strings.Fields(line)
-		if len(fields) < 1 {
-			continue
-		}
-		cidr := fields[0]
-		if strings.Contains(cidr, "/") && !strings.Contains(cidr, "docker") && !strings.Contains(cidr, "br-") {
-			subnets = append(subnets, cidr)
-		}
+	iface := strings.TrimSpace(string(out))
+	if iface == "" {
+		return nil, nil
 	}
 
-	if len(subnets) == 0 {
-		cmd2 := exec.Command("sh", "-c",
-			"ip route show default | awk '{print $5}' | head -1")
-		out2, _ := cmd2.CombinedOutput()
-		iface := strings.TrimSpace(string(out2))
-		if iface != "" {
-			cmd3 := exec.Command("sh", "-c",
-				"ip -o addr show "+iface+" | awk '{print $4}' | head -1")
-			out3, _ := cmd3.CombinedOutput()
-			cidr := strings.TrimSpace(string(out3))
-			if cidr != "" {
-				subnets = append(subnets, cidr)
-			}
-		}
+	// Get the primary IPv4 CIDR on that interface
+	out, err = exec.Command("sh", "-c",
+		"ip -4 -o addr show "+iface+" | awk '{print $4}' | head -1").CombinedOutput()
+	if err != nil {
+		return nil, err
+	}
+	cidr := strings.TrimSpace(string(out))
+	if cidr == "" {
+		return nil, nil
 	}
 
-	return subnets, nil
+	log.Printf("detected subnet: %s on %s", cidr, iface)
+	return []string{cidr}, nil
 }
 
 // extractDstIP extracts the destination IP from an IPv4 packet header.
