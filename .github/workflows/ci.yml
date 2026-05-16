@@ -130,19 +130,3 @@ jobs:
             mesnet-web.tar.gz
           draft: false
           generate_release_notes: true
-
-  # ── Deploy Worker (after release) ──
-  deploy-worker:
-    needs: release
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Bump version in Worker
-        run: sed -i "s/const VER = \".*\"/const VER = \"${{ github.ref_name }}\"/" deploy/worker.js
-
-      - name: Deploy to Cloudflare
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          command: deploy
