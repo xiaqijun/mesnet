@@ -81,7 +81,7 @@ func (a *Agent) Start() error {
 		}
 
 		dstIP := extractDstIP(plaintext)
-		ownerID, nextHop := a.routes.Lookup(dstIP)
+		_, nextHop := a.routes.Lookup(dstIP)
 
 		// Check if this IP belongs to one of our local subnets
 		if isLocalIP(a.tun.IP(), dstIP) || a.isInOurSubnets(dstIP) {
@@ -215,7 +215,6 @@ func (a *Agent) getSubnets() []string {
 }
 
 func (a *Agent) getMyNodeID() uint {
-	// TODO: store node ID when control plane sends tun_setup with node_id
 	return 0
 }
 
@@ -244,7 +243,6 @@ func isLocalIP(tunIP, ip string) bool {
 }
 
 func extractToken(url string) string {
-	// url format: wss://host:port/ws/agent/<token>
 	for i := len(url) - 1; i >= 0; i-- {
 		if url[i] == '/' {
 			return url[i+1:]
