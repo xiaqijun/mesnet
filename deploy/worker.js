@@ -1,5 +1,5 @@
 const GH = "https://github.com/xiaqijun/mesnet/releases/latest/download";
-const VER = "v1.0.23";
+const VER = "v1.0.24";
 
 export default {
   async fetch(request) {
