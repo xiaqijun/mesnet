@@ -1,8 +1,10 @@
 package services
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/mesnet/mesnet/internal/server/models"
@@ -17,12 +19,18 @@ func AutoMesh(db *gorm.DB, registry *ws.Registry, nodeID uint) {
 		return
 	}
 
+	// Auto-detect subnets from agent if not manually configured
+	if node.Subnets == "" || node.Subnets == "-" {
+		detectAndSaveSubnets(db, registry, &node)
+	}
+
 	// Find all other online backbone nodes
 	var backbones []models.Node
 	db.Where("id != ? AND backbone = ?", nodeID, true).Find(&backbones)
 
 	if len(backbones) == 0 {
 		log.Printf("mesh: no backbone nodes available for %s", node.Name)
+		createSelfTunnel(db, registry, &node)
 		return
 	}
 
@@ -43,6 +51,44 @@ func AutoMesh(db *gorm.DB, registry *ws.Registry, nodeID uint) {
 				createLeafTunnel(db, registry, &node, second)
 			}
 		}
+	}
+}
+
+// detectAndSaveSubnets sends subnet_detect to agent and saves result to DB.
+func detectAndSaveSubnets(db *gorm.DB, registry *ws.Registry, node *models.Node) {
+	result, err := registry.SendCmd(node.ID, "subnet_detect", nil, 10*time.Second)
+	if err != nil {
+		log.Printf("mesh: subnet detect failed for %s: %v", node.Name, err)
+		return
+	}
+
+	var data struct {
+		Subnets []string `json:"subnets"`
+	}
+	if result.Data != nil {
+		if err := json.Unmarshal(result.Data, &data); err != nil {
+			log.Printf("mesh: subnet detect parse failed for %s: %v", node.Name, err)
+			return
+		}
+	}
+
+	if len(data.Subnets) > 0 {
+		subnetsStr := strings.Join(data.Subnets, ",")
+		db.Model(node).Update("subnets", subnetsStr)
+		node.Subnets = subnetsStr
+		log.Printf("mesh: auto-detected subnets for %s: %s", node.Name, subnetsStr)
+	}
+}
+
+// createSelfTunnel creates a tunnel to itself when no other backbone exists (single node).
+func createSelfTunnel(db *gorm.DB, registry *ws.Registry, node *models.Node) {
+	if node.Subnets == "" {
+		return
+	}
+	if !registry.IsOnline(node.ID) {
+		registry.SendCmd(node.ID, "tun_setup", map[string]any{
+			"ip": node.VirtualIP,
+		}, 5*time.Second)
 	}
 }
 
