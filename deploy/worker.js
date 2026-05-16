@@ -1,5 +1,26 @@
-const GH = "https://github.com/xiaqijun/mesnet/releases/latest/download";
-const VER = "v1.0.25";
+const GH_API = "https://api.github.com/repos/xiaqijun/mesnet/releases/latest";
+const GH_DL = "https://github.com/xiaqijun/mesnet/releases/latest/download";
+
+// Cache latest version for 5 min to avoid hitting GitHub API rate limits
+let cachedVer = "";
+let cachedAt = 0;
+
+async function getLatestVersion() {
+  if (cachedVer && Date.now() - cachedAt < 300000) {
+    return cachedVer;
+  }
+  try {
+    const res = await fetch(GH_API, {
+      headers: { "User-Agent": "mesnet-worker", "Accept": "application/vnd.github+json" },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      cachedVer = data.tag_name || cachedVer;
+      cachedAt = Date.now();
+    }
+  } catch { /* use cached value */ }
+  return cachedVer || "unknown";
+}
 
 export default {
   async fetch(request) {
@@ -7,33 +28,34 @@ export default {
     const path = url.pathname;
 
     if (path === "/version") {
-      return new Response(VER, {
+      const ver = await getLatestVersion();
+      return new Response(ver, {
         headers: { "Content-Type": "text/plain", "Cache-Control": "no-cache" },
       });
     }
 
     if (path === "/" || path === "/install" || path === "/install.sh") {
-      return new Response(INSTALL_SCRIPT.replace("__VERSION__", VER), {
+      const ver = await getLatestVersion();
+      return new Response(INSTALL_SCRIPT.replace("__VERSION__", ver), {
         headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "public, max-age=300" },
       });
     }
 
-    // Binary downloads: check Cloudflare edge cache first
-    const cacheKey = new Request(url.toString(), request);
+    // Binary downloads: proxy to GitHub with Cloudflare edge cache
     const cache = caches.default;
-    let res = await cache.match(cacheKey);
-    if (res) return res;
+    const cached = await cache.match(request);
+    if (cached) return cached;
 
-    const target = `${GH}${path}`;
-    res = await fetch(target);
+    const target = `${GH_DL}${path}`;
+    const res = await fetch(target);
     if (!res.ok) return new Response("Not Found", { status: 404 });
 
-    // Clone so we can both put in cache and return
-    const cached = new Response(res.body, res);
-    cached.headers.set("Cache-Control", "public, max-age=86400");
-    request.ctx?.waitUntil(cache.put(cacheKey, cached.clone()));
+    const response = new Response(res.body, res);
+    response.headers.set("Cache-Control", "public, max-age=86400");
+    const ctx = request.ctx;
+    if (ctx) ctx.waitUntil(cache.put(request, response.clone()));
 
-    return cached;
+    return response;
   },
 };
 
