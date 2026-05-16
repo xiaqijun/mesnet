@@ -2,7 +2,3 @@ name = "mesnet"
 main = "deploy/worker.js"
 compatibility_date = "2024-01-01"
 workers_dev = false
-
-[[routes]]
-pattern = "meshnet.kisectool.com/*"
-zone_name = "kisectool.com"
