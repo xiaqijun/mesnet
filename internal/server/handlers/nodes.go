@@ -15,10 +15,16 @@ import (
 )
 
 type createNodeBody struct {
-	Name         string `json:"name" binding:"required"`
-	Subnets      string `json:"subnets"`
-	LocalSubnets string `json:"local_subnets"`
-	Backbone     bool   `json:"backbone"`
+	Name     string `json:"name" binding:"required"`
+	Subnets  string `json:"subnets"`
+	Backbone bool   `json:"backbone"`
+}
+
+type updateNodeBody struct {
+	Name         *string `json:"name"`
+	Subnets      *string `json:"subnets"`
+	LocalSubnets *string `json:"local_subnets"`
+	Backbone     *bool   `json:"backbone"`
 }
 
 func ListNodes(db *gorm.DB, registry *ws.Registry) gin.HandlerFunc {
@@ -107,16 +113,24 @@ func UpdateNode(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		var body createNodeBody
+		var body updateNodeBody
 		if err := c.ShouldBindJSON(&body); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 
-		node.Name = body.Name
-		node.Subnets = body.Subnets
-		node.LocalSubnets = body.LocalSubnets
-		node.Backbone = body.Backbone
+		if body.Name != nil {
+			node.Name = *body.Name
+		}
+		if body.Subnets != nil {
+			node.Subnets = *body.Subnets
+		}
+		if body.LocalSubnets != nil {
+			node.LocalSubnets = *body.LocalSubnets
+		}
+		if body.Backbone != nil {
+			node.Backbone = *body.Backbone
+		}
 		node.UpdatedAt = time.Now()
 
 		db.Save(&node)
@@ -142,7 +156,6 @@ func DeleteNode(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-// DetectSubnets triggers subnet detection on an online agent and saves results.
 func DetectSubnets(db *gorm.DB, registry *ws.Registry) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
