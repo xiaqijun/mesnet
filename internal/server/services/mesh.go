@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mesnet/mesnet/internal/server/logwatch"
 	"github.com/mesnet/mesnet/internal/server/models"
 	"github.com/mesnet/mesnet/internal/server/ws"
 	"gorm.io/gorm"
@@ -21,25 +22,21 @@ func AutoMesh(db *gorm.DB, registry *ws.Registry, nodeID uint) {
 		return
 	}
 
-	// Step 0: ensure TUN device is created
 	if node.VirtualIP != "" {
 		registry.SendCmd(nodeID, "tun_setup", map[string]any{"ip": node.VirtualIP}, 5*time.Second)
 	}
 
-	// Step 1: detect subnets
 	if node.LocalSubnets == "" || node.Subnets == "" {
 		DetectAndSaveSubnets(db, registry, &node)
 	}
 
-	// Step 2: find peers
 	peers := findBestPeers(db, registry, nodeID)
 	if len(peers) == 0 {
-		log.Printf("mesh: no peers for %s, self-tunnel only", node.Name)
+		log.Printf("mesh: no peers for %s", node.Name)
 		createSelfTunnel(db, registry, &node)
 		return
 	}
 
-	// Step 3: create tunnels
 	if node.Backbone {
 		for _, peer := range peers {
 			createBackboneMesh(db, registry, &node, &peer)
@@ -57,7 +54,6 @@ func AutoMesh(db *gorm.DB, registry *ws.Registry, nodeID uint) {
 		}
 	}
 
-	// Step 4: sync routes
 	time.Sleep(4 * time.Second)
 	syncAllRoutes(db, registry)
 }
@@ -73,7 +69,7 @@ func createBackboneMesh(db *gorm.DB, registry *ws.Registry, a, b *models.Node) {
 	}
 
 	tunnel := models.Tunnel{
-		Name:        fmt.Sprintf("%s ↔ %s", a.Name, b.Name),
+		Name:        fmt.Sprintf("%s <-> %s", a.Name, b.Name),
 		LeftNodeID:  a.ID,
 		RightNodeID: b.ID,
 		LeftSubnet:  a.Subnets,
@@ -93,13 +89,12 @@ func createBackboneMesh(db *gorm.DB, registry *ws.Registry, a, b *models.Node) {
 		}, 10*time.Second)
 
 		if errA != nil || errB != nil {
-			log.Printf("mesh: peer_connect failed %s↔%s: A=%v B=%v", a.Name, b.Name, errA, errB)
+			logwatch.Warn("mesh", fmt.Sprintf("peer_connect failed %s<->%s: A=%v B=%v", a.Name, b.Name, errA, errB))
 			return
 		}
 
 		time.Sleep(2 * time.Second)
 
-		// Push routes
 		for _, s := range splitSubnets(a.Subnets) {
 			registry.SendCmd(b.ID, "route_add", map[string]any{
 				"subnet": s, "node_id": a.ID, "next_hop": a.ID,
@@ -114,7 +109,7 @@ func createBackboneMesh(db *gorm.DB, registry *ws.Registry, a, b *models.Node) {
 		tunnel.Status = "up"
 		tunnel.UpdatedAt = time.Now()
 		db.Save(&tunnel)
-		log.Printf("mesh: backbone tunnel up %s ↔ %s", a.Name, b.Name)
+		logwatch.Info("mesh", fmt.Sprintf("backbone tunnel up %s <-> %s", a.Name, b.Name))
 	}()
 }
 
@@ -143,7 +138,7 @@ func createLeafTunnel(db *gorm.DB, registry *ws.Registry, leaf, backbone *models
 	}
 
 	tunnel := models.Tunnel{
-		Name:        fmt.Sprintf("%s → %s", leaf.Name, backbone.Name),
+		Name:        fmt.Sprintf("%s -> %s", leaf.Name, backbone.Name),
 		LeftNodeID:  leaf.ID,
 		RightNodeID: backbone.ID,
 		LeftSubnet:  leaf.Subnets,
@@ -159,7 +154,7 @@ func createLeafTunnel(db *gorm.DB, registry *ws.Registry, leaf, backbone *models
 			"node_id": backbone.ID, "peer_addr": backbone.ListenAddr, "peer_token": backbone.AgentToken, "tunnel_id": tunnel.ID,
 		}, 10*time.Second)
 		if err != nil {
-			log.Printf("mesh: leaf peer_connect failed %s→%s: %v", leaf.Name, backbone.Name, err)
+			logwatch.Warn("mesh", fmt.Sprintf("leaf peer_connect failed %s->%s: %v", leaf.Name, backbone.Name, err))
 			return
 		}
 
@@ -179,11 +174,9 @@ func createLeafTunnel(db *gorm.DB, registry *ws.Registry, leaf, backbone *models
 		tunnel.Status = "up"
 		tunnel.UpdatedAt = time.Now()
 		db.Save(&tunnel)
-		log.Printf("mesh: leaf tunnel up %s → %s", leaf.Name, backbone.Name)
+		logwatch.Info("mesh", fmt.Sprintf("leaf tunnel up %s -> %s", leaf.Name, backbone.Name))
 	}()
 }
-
-// findBestPeers, findBestBackbone, findSecondBest, etc.
 
 func findBestPeers(db *gorm.DB, registry *ws.Registry, excludeID uint) []models.Node {
 	var all []models.Node
@@ -221,7 +214,7 @@ func findSecondBest(nodes []models.Node, excludeID uint) *models.Node {
 func DetectAndSaveSubnets(db *gorm.DB, registry *ws.Registry, node *models.Node) {
 	result, err := registry.SendCmd(node.ID, "subnet_detect", nil, 10*time.Second)
 	if err != nil {
-		log.Printf("mesh: subnet detect failed for %s: %v", node.Name, err)
+		logwatch.Warn("mesh", fmt.Sprintf("subnet detect failed for %s: %v", node.Name, err))
 		return
 	}
 	var data struct {
@@ -229,7 +222,7 @@ func DetectAndSaveSubnets(db *gorm.DB, registry *ws.Registry, node *models.Node)
 	}
 	if result.Data != nil {
 		if err := json.Unmarshal(result.Data, &data); err != nil {
-			log.Printf("mesh: subnet detect parse failed for %s: %v", node.Name, err)
+			logwatch.Warn("mesh", fmt.Sprintf("subnet detect parse failed for %s: %v", node.Name, err))
 			return
 		}
 	}
@@ -243,7 +236,7 @@ func DetectAndSaveSubnets(db *gorm.DB, registry *ws.Registry, node *models.Node)
 			db.Model(node).Update("subnets", advStr)
 			node.Subnets = advStr
 		}
-		log.Printf("mesh: subnets for %s: local=%s advertised=%s", node.Name, localStr, node.Subnets)
+		logwatch.Info("mesh", fmt.Sprintf("subnets for %s: local=%s advertised=%s", node.Name, localStr, node.Subnets))
 	}
 }
 
@@ -266,7 +259,7 @@ func resolveSubnetConflicts(db *gorm.DB, nodeID uint, subnets []string) []string
 			continue
 		}
 		if overlaps(s, existing) {
-			log.Printf("mesh: subnet conflict: %s for node %d", s, nodeID)
+			logwatch.Warn("mesh", fmt.Sprintf("subnet conflict: %s for node %d", s, nodeID))
 			continue
 		}
 		clean = append(clean, s)
@@ -334,7 +327,7 @@ func syncAllRoutes(db *gorm.DB, registry *ws.Registry) {
 			}, 5*time.Second)
 		}
 	}
-	log.Printf("mesh: synced %d subnets to all nodes", len(allSubnets))
+	logwatch.Info("mesh", fmt.Sprintf("synced %d subnets to all nodes", len(allSubnets)))
 }
 
 func findNextHop(from, to uint, adj map[uint]map[uint]bool) uint {
