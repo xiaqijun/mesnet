@@ -4,7 +4,6 @@ import (
 	"log"
 )
 
-// Tunnel manages encrypted data transport over peer connections.
 type Tunnel struct {
 	agent  *Agent
 	crypto *Crypto
@@ -17,33 +16,31 @@ func NewTunnel(agent *Agent) *Tunnel {
 	}
 }
 
-// SendEncrypted encrypts raw IP packet and sends it to a peer.
-func (t *Tunnel) SendEncrypted(nodeID uint, packet []byte) error {
+// SendEncrypted encrypts raw IP packet and relays via control plane to target.
+func (t *Tunnel) SendEncrypted(targetNodeID uint, packet []byte) error {
 	encrypted, err := t.crypto.Encrypt(packet)
 	if err != nil {
 		return err
 	}
-	frame := EncodeFrame(nodeID, encrypted)
-	return t.agent.peers.SendRaw(nodeID, frame)
+	frame := EncodeFrame(targetNodeID, encrypted)
+	return t.agent.ws.RelayTo(targetNodeID, frame)
 }
 
-// ReceiveEncrypted receives encrypted data from a peer and decrypts it.
-func (t *Tunnel) ReceiveEncrypted(nodeID uint, frame []byte) ([]byte, error) {
+// ReceiveEncrypted receives encrypted data and decrypts it.
+func (t *Tunnel) ReceiveEncrypted(fromNodeID uint, frame []byte) ([]byte, error) {
 	_, _, payload, err := DecodeFrame(frame)
 	if err != nil {
 		return nil, err
 	}
 	plaintext, err := t.crypto.Decrypt(payload)
 	if err != nil {
-		log.Printf("tunnel decrypt failed from node %d: %v", nodeID, err)
+		log.Printf("tunnel decrypt failed from node %d: %v", fromNodeID, err)
 		return nil, err
 	}
 	return plaintext, nil
 }
 
-// Run starts the packet forwarding loop from TUN to peers.
-// Supports multi-hop relay: if the next-hop differs from the destination node,
-// the packet is relayed through the next-hop peer.
+// Run starts the packet forwarding loop from TUN to tunnel.
 func (t *Tunnel) Run() {
 	go func() {
 		for {
@@ -51,13 +48,11 @@ func (t *Tunnel) Run() {
 			if err != nil || len(packet) < 20 {
 				continue
 			}
-
 			dstIP := extractDstIP(packet)
 			_, nextHop := t.agent.routes.Lookup(dstIP)
 			if nextHop == 0 {
-				continue // no route
+				continue
 			}
-
 			if err := t.SendEncrypted(nextHop, packet); err != nil {
 				log.Printf("tunnel send to node %d failed: %v", nextHop, err)
 			}
