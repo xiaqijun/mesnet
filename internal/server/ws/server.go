@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/mesnet/mesnet/internal/version"
 	"github.com/mesnet/mesnet/internal/server/logwatch"
 	"gorm.io/gorm"
 )
@@ -269,6 +270,15 @@ func HandleAgent(w http.ResponseWriter, r *http.Request, registry *Registry, db 
 					addr := fmt.Sprintf("%s:%d", remoteIP, hello.ListenPort)
 					db.Table("nodes").Where("id = ?", n.ID).Update("listen_addr", addr)
 					log.Printf("agent %d listen_addr auto-set to %s", n.ID, addr)
+
+					// Auto-update agent if server version > agent version
+					serverVer := version.Current
+					if hello.Version != "" && hello.Version != serverVer {
+						log.Printf("agent %d version %s != server %s, triggering update", n.ID, hello.Version, serverVer)
+						go func() {
+							ac.SendJSON(Message{Type: "cmd", ID: "auto_update", Action: "agent_update"})
+						}()
+					}
 				}
 			}
 
