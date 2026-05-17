@@ -105,6 +105,10 @@ func (a *Agent) Start() error {
 	// Start latency prober
 	go a.probe.Run(a.quit)
 
+	// Start TUN packet forwarding loop
+	tunnel := NewTunnel(a)
+	go tunnel.Run()
+
 	return nil
 }
 

@@ -2,57 +2,108 @@ package agent
 
 import (
 	"log"
+	"os"
 	"os/exec"
 	"strings"
+	"syscall"
+	"unsafe"
 )
 
-// TUNDevice manages a TUN virtual network interface.
+// TUNDevice manages a TUN virtual network interface using Linux /dev/net/tun.
 type TUNDevice struct {
 	name string
 	ip   string
 	up   bool
+	fd   *os.File
 }
+
+const (
+	cIFFTUN      = 0x0001
+	cIFFNOPI     = 0x1000
+	cTUNSETIFF   = 0x400454ca
+	cMTU         = 1500
+)
 
 func NewTUNDevice() *TUNDevice {
 	return &TUNDevice{name: "tun0"}
 }
 
+// Create opens /dev/net/tun, creates the interface, assigns IP, and brings it up.
 func (t *TUNDevice) Create(ip string) error {
-	// Create TUN device (Linux)
-	cmd := exec.Command("ip", "tuntap", "add", "dev", t.name, "mode", "tun")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		log.Printf("tun create: %s, %v", string(out), err)
+	fd, err := os.OpenFile("/dev/net/tun", os.O_RDWR, 0)
+	if err != nil {
 		return err
 	}
 
+	var ifr [40]byte
+	copy(ifr[:16], t.name)
+	flags := uint16(cIFFTUN | cIFFNOPI)
+	*(*uint16)(unsafe.Pointer(&ifr[16])) = flags
+
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, fd.Fd(), cTUNSETIFF, uintptr(unsafe.Pointer(&ifr)))
+	if errno != 0 {
+		fd.Close()
+		return errno
+	}
+
 	// Assign IP
-	cmd = exec.Command("ip", "addr", "add", ip+"/16", "dev", t.name)
+	cmd := exec.Command("ip", "addr", "add", ip+"/16", "dev", t.name)
 	if out, err := cmd.CombinedOutput(); err != nil {
+		fd.Close()
 		log.Printf("tun addr: %s, %v", string(out), err)
 		return err
 	}
 
 	// Bring up
-	cmd = exec.Command("ip", "link", "set", "dev", t.name, "up")
+	cmd = exec.Command("ip", "link", "set", "dev", t.name, "mtu", "1500", "up")
 	if out, err := cmd.CombinedOutput(); err != nil {
+		fd.Close()
 		log.Printf("tun up: %s, %v", string(out), err)
 		return err
 	}
 
+	// Enable IP forwarding on the host
+	exec.Command("sh", "-c", "echo 1 > /proc/sys/net/ipv4/ip_forward").Run()
+
+	t.fd = fd
+	t.name = t.name
 	t.ip = ip
 	t.up = true
 	log.Printf("tun %s created with IP %s", t.name, ip)
 	return nil
 }
 
+// Destroy removes the TUN interface and closes the file descriptor.
 func (t *TUNDevice) Destroy() error {
-	cmd := exec.Command("ip", "link", "del", "dev", t.name)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		log.Printf("tun destroy: %s, %v", string(out), err)
-		return err
-	}
 	t.up = false
+	if t.fd != nil {
+		t.fd.Close()
+		t.fd = nil
+	}
+	exec.Command("ip", "link", "del", "dev", t.name).Run()
 	return nil
+}
+
+// Read reads a raw IP packet from the TUN device.
+func (t *TUNDevice) Read() ([]byte, error) {
+	if t.fd == nil {
+		return nil, os.ErrClosed
+	}
+	buf := make([]byte, 2048)
+	n, err := t.fd.Read(buf)
+	if err != nil {
+		return nil, err
+	}
+	return buf[:n], nil
+}
+
+// Write writes a raw IP packet to the TUN device.
+func (t *TUNDevice) Write(data []byte) error {
+	if t.fd == nil {
+		return os.ErrClosed
+	}
+	_, err := t.fd.Write(data)
+	return err
 }
 
 func (t *TUNDevice) IsUp() bool {
@@ -61,19 +112,6 @@ func (t *TUNDevice) IsUp() bool {
 
 func (t *TUNDevice) IP() string {
 	return t.ip
-}
-
-func (t *TUNDevice) Read() ([]byte, error) {
-	// Read from TUN device file descriptor
-	// In production, this would use golang.org/x/net or open /dev/net/tun directly
-	cmd := exec.Command("cat", "/dev/net/tun")
-	out, err := cmd.Output()
-	return out, err
-}
-
-func (t *TUNDevice) Write(data []byte) error {
-	// Write to TUN device
-	return nil
 }
 
 func (t *TUNDevice) execCmd(name string, args ...string) string {
