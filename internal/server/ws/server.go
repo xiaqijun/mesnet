@@ -260,6 +260,7 @@ func HandleAgent(w http.ResponseWriter, r *http.Request, registry *Registry, db 
 				Name       string `json:"name"`
 				Version    string `json:"version"`
 				ListenPort int    `json:"listen_port"`
+}
 			if json.Unmarshal(raw, &hello) == nil {
 				if hello.Version != "" {
 					db.Table("nodes").Where("id = ?", n.ID).Update("agent_version", hello.Version)
