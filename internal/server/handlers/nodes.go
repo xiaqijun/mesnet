@@ -131,9 +131,9 @@ func UpdateNode(db *gorm.DB) gin.HandlerFunc {
 		}
 		if body.Backbone != nil {
 			node.Backbone = *body.Backbone
+		}
 		if body.ListenAddr != nil {
 			node.ListenAddr = *body.ListenAddr
-		}
 		}
 		node.UpdatedAt = time.Now()
 
