@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/mesnet/mesnet/internal/server/config"
@@ -37,9 +38,14 @@ func main() {
 	registry := ws.NewRegistry()
 	go registry.Run()
 
-	// Auto-mesh when agent connects
+	// Auto-mesh when agent connects — wait 3s then mesh ALL online nodes
 	registry.SetOnHello(func(nodeID uint) {
-		services.AutoMesh(db, registry, nodeID)
+		go func() {
+			time.Sleep(3 * time.Second)
+			for _, id := range registry.ListOnline() {
+				services.AutoMesh(db, registry, id)
+			}
+		}()
 	})
 
 	// Start stats collector
