@@ -13,40 +13,38 @@ import (
 	"gorm.io/gorm"
 )
 
-const maxMeshPeers = 3 // maximum backbone peers per node (not full mesh)
+const maxMeshPeers = 3
 
-// AutoMesh connects a newly online node to the mesh network.
 func AutoMesh(db *gorm.DB, registry *ws.Registry, nodeID uint) {
 	var node models.Node
 	if err := db.First(&node, nodeID).Error; err != nil {
 		return
 	}
 
-	// Step 0: ensure TUN device is created (needed for all nodes, not just isolated)
+	// Step 0: ensure TUN device is created
 	if node.VirtualIP != "" {
 		registry.SendCmd(nodeID, "tun_setup", map[string]any{"ip": node.VirtualIP}, 5*time.Second)
 	}
 
-	// Step 1: detect subnets from agent if not configured or cleared
+	// Step 1: detect subnets
 	if node.LocalSubnets == "" || node.Subnets == "" {
 		DetectAndSaveSubnets(db, registry, &node)
 	}
 
-	// Step 2: find best backbone peers (max 3, sorted by latency or CPU*Memory)
+	// Step 2: find peers
 	peers := findBestPeers(db, registry, nodeID)
 	if len(peers) == 0 {
-		log.Printf("mesh: no peers available for %s, creating self-tunnel", node.Name)
+		log.Printf("mesh: no peers for %s, self-tunnel only", node.Name)
 		createSelfTunnel(db, registry, &node)
 		return
 	}
 
-	// Step 3: create tunnels based on node type
+	// Step 3: create tunnels
 	if node.Backbone {
 		for _, peer := range peers {
 			createBackboneMesh(db, registry, &node, &peer)
 		}
 	} else {
-		// Leaf connects to best 2 backbones
 		best := findBestBackbone(peers)
 		if best != nil {
 			createLeafTunnel(db, registry, &node, best)
@@ -59,23 +57,140 @@ func AutoMesh(db *gorm.DB, registry *ws.Registry, nodeID uint) {
 		}
 	}
 
-	// Step 4: after tunnels up, push full routing table to all affected nodes
+	// Step 4: sync routes
 	time.Sleep(4 * time.Second)
 	syncAllRoutes(db, registry)
 }
 
-// findBestPeers returns up to maxMeshPeers best backbone peers.
-// Prefers peers with lower latency; falls back to CPU*Memory ranking.
+func createBackboneMesh(db *gorm.DB, registry *ws.Registry, a, b *models.Node) {
+	var existing models.Tunnel
+	err := db.Where(
+		"(left_node_id = ? AND right_node_id = ?) OR (left_node_id = ? AND right_node_id = ?)",
+		a.ID, b.ID, b.ID, a.ID,
+	).First(&existing).Error
+	if err == nil {
+		return
+	}
+
+	tunnel := models.Tunnel{
+		Name:        fmt.Sprintf("%s ↔ %s", a.Name, b.Name),
+		LeftNodeID:  a.ID,
+		RightNodeID: b.ID,
+		LeftSubnet:  a.Subnets,
+		RightSubnet: b.Subnets,
+		Status:      "down",
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+	db.Create(&tunnel)
+
+	go func() {
+		_, errA := registry.SendCmd(a.ID, "peer_connect", map[string]any{
+			"node_id": b.ID, "peer_addr": b.ListenAddr, "peer_token": b.AgentToken, "tunnel_id": tunnel.ID,
+		}, 10*time.Second)
+		_, errB := registry.SendCmd(b.ID, "peer_connect", map[string]any{
+			"node_id": a.ID, "peer_addr": a.ListenAddr, "peer_token": a.AgentToken, "tunnel_id": tunnel.ID,
+		}, 10*time.Second)
+
+		if errA != nil || errB != nil {
+			log.Printf("mesh: peer_connect failed %s↔%s: A=%v B=%v", a.Name, b.Name, errA, errB)
+			return
+		}
+
+		time.Sleep(2 * time.Second)
+
+		// Push routes
+		for _, s := range splitSubnets(a.Subnets) {
+			registry.SendCmd(b.ID, "route_add", map[string]any{
+				"subnet": s, "node_id": a.ID, "next_hop": a.ID,
+			}, 5*time.Second)
+		}
+		for _, s := range splitSubnets(b.Subnets) {
+			registry.SendCmd(a.ID, "route_add", map[string]any{
+				"subnet": s, "node_id": b.ID, "next_hop": b.ID,
+			}, 5*time.Second)
+		}
+
+		tunnel.Status = "up"
+		tunnel.UpdatedAt = time.Now()
+		db.Save(&tunnel)
+		log.Printf("mesh: backbone tunnel up %s ↔ %s", a.Name, b.Name)
+	}()
+}
+
+func splitSubnets(s string) []string {
+	if s == "" || s == "-" {
+		return nil
+	}
+	var r []string
+	for _, p := range strings.Split(s, ",") {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			r = append(r, p)
+		}
+	}
+	return r
+}
+
+func createLeafTunnel(db *gorm.DB, registry *ws.Registry, leaf, backbone *models.Node) {
+	var existing models.Tunnel
+	err := db.Where(
+		"(left_node_id = ? AND right_node_id = ?) OR (left_node_id = ? AND right_node_id = ?)",
+		leaf.ID, backbone.ID, backbone.ID, leaf.ID,
+	).First(&existing).Error
+	if err == nil {
+		return
+	}
+
+	tunnel := models.Tunnel{
+		Name:        fmt.Sprintf("%s → %s", leaf.Name, backbone.Name),
+		LeftNodeID:  leaf.ID,
+		RightNodeID: backbone.ID,
+		LeftSubnet:  leaf.Subnets,
+		RightSubnet: backbone.Subnets,
+		Status:      "down",
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+	db.Create(&tunnel)
+
+	go func() {
+		_, err := registry.SendCmd(leaf.ID, "peer_connect", map[string]any{
+			"node_id": backbone.ID, "peer_addr": backbone.ListenAddr, "peer_token": backbone.AgentToken, "tunnel_id": tunnel.ID,
+		}, 10*time.Second)
+		if err != nil {
+			log.Printf("mesh: leaf peer_connect failed %s→%s: %v", leaf.Name, backbone.Name, err)
+			return
+		}
+
+		time.Sleep(2 * time.Second)
+
+		for _, s := range splitSubnets(backbone.Subnets) {
+			registry.SendCmd(leaf.ID, "route_add", map[string]any{
+				"subnet": s, "node_id": backbone.ID, "next_hop": backbone.ID,
+			}, 5*time.Second)
+		}
+		for _, s := range splitSubnets(leaf.Subnets) {
+			registry.SendCmd(backbone.ID, "route_add", map[string]any{
+				"subnet": s, "node_id": leaf.ID, "next_hop": leaf.ID,
+			}, 5*time.Second)
+		}
+
+		tunnel.Status = "up"
+		tunnel.UpdatedAt = time.Now()
+		db.Save(&tunnel)
+		log.Printf("mesh: leaf tunnel up %s → %s", leaf.Name, backbone.Name)
+	}()
+}
+
+// findBestPeers, findBestBackbone, findSecondBest, etc.
+
 func findBestPeers(db *gorm.DB, registry *ws.Registry, excludeID uint) []models.Node {
 	var all []models.Node
 	db.Where("id != ? AND backbone = ?", excludeID, true).Order("cpu * memory_mb DESC").Find(&all)
-
-	// Filter to maxMeshPeers
 	if len(all) > maxMeshPeers {
 		all = all[:maxMeshPeers]
 	}
-
-	// Filter to online
 	var online []models.Node
 	for _, n := range all {
 		if registry.IsOnline(n.ID) {
@@ -103,15 +218,12 @@ func findSecondBest(nodes []models.Node, excludeID uint) *models.Node {
 	return nil
 }
 
-// detectAndSaveSubnets sends subnet_detect to agent and saves result to DB.
-// Detected subnets go to LocalSubnets. Conflict-free subnets go to Subnets.
 func DetectAndSaveSubnets(db *gorm.DB, registry *ws.Registry, node *models.Node) {
 	result, err := registry.SendCmd(node.ID, "subnet_detect", nil, 10*time.Second)
 	if err != nil {
 		log.Printf("mesh: subnet detect failed for %s: %v", node.Name, err)
 		return
 	}
-
 	var data struct {
 		Subnets []string `json:"subnets"`
 	}
@@ -121,15 +233,10 @@ func DetectAndSaveSubnets(db *gorm.DB, registry *ws.Registry, node *models.Node)
 			return
 		}
 	}
-
 	if len(data.Subnets) > 0 {
 		localStr := strings.Join(data.Subnets, ",")
-		db.Model(node).Updates(map[string]any{
-			"local_subnets": localStr,
-		})
+		db.Model(node).Updates(map[string]any{"local_subnets": localStr})
 		node.LocalSubnets = localStr
-
-		// Resolve conflicts: only advertise subnets not claimed by other nodes
 		advertised := resolveSubnetConflicts(db, node.ID, data.Subnets)
 		if len(advertised) > 0 {
 			advStr := strings.Join(advertised, ",")
@@ -140,12 +247,9 @@ func DetectAndSaveSubnets(db *gorm.DB, registry *ws.Registry, node *models.Node)
 	}
 }
 
-// resolveSubnetConflicts removes subnets that overlap with existing nodes' advertised subnets.
-// Returns only the conflict-free subnets for this node.
 func resolveSubnetConflicts(db *gorm.DB, nodeID uint, subnets []string) []string {
 	var others []models.Node
 	db.Where("id != ? AND subnets != '' AND subnets != '-'", nodeID).Find(&others)
-
 	existing := make(map[string]bool)
 	for _, n := range others {
 		for _, s := range strings.Split(n.Subnets, ",") {
@@ -155,7 +259,6 @@ func resolveSubnetConflicts(db *gorm.DB, nodeID uint, subnets []string) []string
 			}
 		}
 	}
-
 	var clean []string
 	for _, s := range subnets {
 		s = strings.TrimSpace(s)
@@ -163,7 +266,7 @@ func resolveSubnetConflicts(db *gorm.DB, nodeID uint, subnets []string) []string
 			continue
 		}
 		if overlaps(s, existing) {
-			log.Printf("mesh: subnet conflict: %s for node %d (already in use)", s, nodeID)
+			log.Printf("mesh: subnet conflict: %s for node %d", s, nodeID)
 			continue
 		}
 		clean = append(clean, s)
@@ -171,18 +274,16 @@ func resolveSubnetConflicts(db *gorm.DB, nodeID uint, subnets []string) []string
 	return clean
 }
 
-// overlaps checks if a subnet overlaps with any existing subnet.
 func overlaps(subnet string, existing map[string]bool) bool {
 	_, cidr, err := net.ParseCIDR(subnet)
 	if err != nil {
-		return existing[subnet] // exact match for non-CIDR
+		return existing[subnet]
 	}
 	for es := range existing {
 		_, eCidr, eErr := net.ParseCIDR(es)
 		if eErr != nil {
 			continue
 		}
-		// Check if either subnet contains the other
 		if cidr.Contains(eCidr.IP) || eCidr.Contains(cidr.IP) {
 			return true
 		}
@@ -190,179 +291,21 @@ func overlaps(subnet string, existing map[string]bool) bool {
 	return existing[subnet]
 }
 
-// createBackboneMesh connects two backbone nodes.
-func createBackboneMesh(db *gorm.DB, registry *ws.Registry, a, b *models.Node) {
-	var existing models.Tunnel
-	err := db.Where(
-		"(left_node_id = ? AND right_node_id = ?) OR (left_node_id = ? AND right_node_id = ?)",
-		a.ID, b.ID, b.ID, a.ID,
-	).First(&existing).Error
-	if err == nil {
-		return // tunnel already exists
-	}
-
-	tunnel := models.Tunnel{
-		Name:        fmt.Sprintf("%s ↔ %s", a.Name, b.Name),
-		LeftNodeID:  a.ID,
-		RightNodeID: b.ID,
-		LeftSubnet:  a.Subnets,
-		RightSubnet: b.Subnets,
-		Status:      "down",
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
-	}
-	db.Create(&tunnel)
-
-	go func() {
-		// Both sides connect to each other
-		registry.SendCmd(a.ID, "peer_connect", map[string]any{
-			"node_id":    b.ID,
-			"peer_addr":  b.ListenAddr,
-			"peer_token": b.AgentToken,
-			"tunnel_id":  tunnel.ID,
-		}, 10*time.Second)
-
-		registry.SendCmd(b.ID, "peer_connect", map[string]any{
-			"node_id":    a.ID,
-			"peer_addr":  a.ListenAddr,
-			"peer_token": a.AgentToken,
-			"tunnel_id":  tunnel.ID,
-		}, 10*time.Second)
-
-		time.Sleep(2 * time.Second)
-
-		// Push routes: A's subnets ↔ B, B's subnets ↔ A
-		if a.Subnets != "" && a.Subnets != "-" {
-			for _, s := range strings.Split(a.Subnets, ",") {
-				s = strings.TrimSpace(s)
-				if s != "" {
-					registry.SendCmd(b.ID, "route_add", map[string]any{
-						"subnet":   s,
-						"node_id":  a.ID,
-						"next_hop": a.ID,
-					}, 5*time.Second)
-				}
-			}
-		}
-		if b.Subnets != "" && b.Subnets != "-" {
-			for _, s := range strings.Split(b.Subnets, ",") {
-				s = strings.TrimSpace(s)
-				if s != "" {
-					registry.SendCmd(a.ID, "route_add", map[string]any{
-						"subnet":   s,
-						"node_id":  b.ID,
-						"next_hop": b.ID,
-					}, 5*time.Second)
-				}
-			}
-		}
-
-		tunnel.Status = "up"
-		tunnel.UpdatedAt = time.Now()
-		db.Save(&tunnel)
-	}()
-
-	log.Printf("mesh: backbone tunnel %s ↔ %s", a.Name, b.Name)
-}
-
-// createLeafTunnel connects a leaf to a backbone.
-func createLeafTunnel(db *gorm.DB, registry *ws.Registry, leaf, backbone *models.Node) {
-	var existing models.Tunnel
-	err := db.Where(
-		"(left_node_id = ? AND right_node_id = ?) OR (left_node_id = ? AND right_node_id = ?)",
-		leaf.ID, backbone.ID, backbone.ID, leaf.ID,
-	).First(&existing).Error
-	if err == nil {
-		return
-	}
-
-	tunnel := models.Tunnel{
-		Name:        fmt.Sprintf("%s → %s", leaf.Name, backbone.Name),
-		LeftNodeID:  leaf.ID,
-		RightNodeID: backbone.ID,
-		LeftSubnet:  leaf.Subnets,
-		RightSubnet: backbone.Subnets,
-		Status:      "down",
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
-	}
-	db.Create(&tunnel)
-
-	go func() {
-		// Only leaf connects outbound to backbone
-		registry.SendCmd(leaf.ID, "peer_connect", map[string]any{
-			"node_id":    backbone.ID,
-			"peer_addr":  backbone.ListenAddr,
-			"peer_token": backbone.AgentToken,
-			"tunnel_id":  tunnel.ID,
-		}, 10*time.Second)
-
-		time.Sleep(2 * time.Second)
-
-		// Push backbone subnets to leaf
-		if backbone.Subnets != "" && backbone.Subnets != "-" {
-			for _, s := range strings.Split(backbone.Subnets, ",") {
-				s = strings.TrimSpace(s)
-				if s != "" {
-					registry.SendCmd(leaf.ID, "route_add", map[string]any{
-						"subnet":   s,
-						"node_id":  backbone.ID,
-						"next_hop": backbone.ID,
-					}, 5*time.Second)
-				}
-			}
-		}
-		// Push leaf subnets to backbone
-		if leaf.Subnets != "" && leaf.Subnets != "-" {
-			for _, s := range strings.Split(leaf.Subnets, ",") {
-				s = strings.TrimSpace(s)
-				if s != "" {
-					registry.SendCmd(backbone.ID, "route_add", map[string]any{
-						"subnet":   s,
-						"node_id":  leaf.ID,
-						"next_hop": leaf.ID,
-					}, 5*time.Second)
-				}
-			}
-		}
-
-		tunnel.Status = "up"
-		tunnel.UpdatedAt = time.Now()
-		db.Save(&tunnel)
-	}()
-
-	log.Printf("mesh: leaf tunnel %s → %s", leaf.Name, backbone.Name)
-}
-
-// syncAllRoutes pushes the full routing table to every online node.
-// For multi-hop routes, computes the correct next_hop based on tunnel topology.
 func syncAllRoutes(db *gorm.DB, registry *ws.Registry) {
 	var nodes []models.Node
 	db.Find(&nodes)
-
-	// Collect all subnets with their owner node IDs
-	type subnetInfo struct {
+	type si struct {
 		subnet string
 		nodeID uint
 	}
-	var allSubnets []subnetInfo
+	var allSubnets []si
 	for _, n := range nodes {
-		if n.Subnets == "" || n.Subnets == "-" {
-			continue
-		}
-		for _, s := range strings.Split(n.Subnets, ",") {
-			s = strings.TrimSpace(s)
-			if s != "" {
-				allSubnets = append(allSubnets, subnetInfo{s, n.ID})
-			}
+		for _, s := range splitSubnets(n.Subnets) {
+			allSubnets = append(allSubnets, si{s, n.ID})
 		}
 	}
-
-	// Get active tunnels for computing next-hops
 	var tunnels []models.Tunnel
 	db.Where("status = ?", "up").Find(&tunnels)
-
-	// Build adjacency: nodeID → direct peers
 	adj := make(map[uint]map[uint]bool)
 	for _, t := range tunnels {
 		if adj[t.LeftNodeID] == nil {
@@ -374,44 +317,32 @@ func syncAllRoutes(db *gorm.DB, registry *ws.Registry) {
 		adj[t.LeftNodeID][t.RightNodeID] = true
 		adj[t.RightNodeID][t.LeftNodeID] = true
 	}
-
-	// For each online node, push routes with correct next-hop
 	for _, node := range nodes {
 		if !registry.IsOnline(node.ID) {
 			continue
 		}
-		for _, si := range allSubnets {
-			if si.nodeID == node.ID {
-				continue // don't route to self
+		for _, s := range allSubnets {
+			if s.nodeID == node.ID {
+				continue
 			}
-			// Find next-hop: if directly connected, use si.nodeID; otherwise find relay
-			nextHop := findNextHop(node.ID, si.nodeID, adj)
+			nextHop := findNextHop(node.ID, s.nodeID, adj)
 			if nextHop == 0 {
 				continue
 			}
 			registry.SendCmd(node.ID, "route_add", map[string]any{
-				"subnet":   si.subnet,
-				"node_id":  si.nodeID,
-				"next_hop": nextHop,
+				"subnet": s.subnet, "node_id": s.nodeID, "next_hop": nextHop,
 			}, 5*time.Second)
 		}
 	}
-
 	log.Printf("mesh: synced %d subnets to all nodes", len(allSubnets))
 }
 
-// findNextHop finds the direct peer to forward traffic to reach the target node.
-// Uses BFS for shortest path through the mesh.
 func findNextHop(from, to uint, adj map[uint]map[uint]bool) uint {
 	if adj[from][to] {
-		return to // directly connected
+		return to
 	}
-	// BFS
 	visited := map[uint]bool{from: true}
-	type step struct {
-		node uint
-		next uint // first hop from source
-	}
+	type step struct{ node, next uint }
 	queue := []step{}
 	for peer := range adj[from] {
 		queue = append(queue, step{peer, peer})
@@ -436,12 +367,7 @@ func findNextHop(from, to uint, adj map[uint]map[uint]bool) uint {
 }
 
 func createSelfTunnel(db *gorm.DB, registry *ws.Registry, node *models.Node) {
-	if node.Subnets == "" || node.Subnets == "-" {
-		return
-	}
-	if registry.IsOnline(node.ID) {
-		registry.SendCmd(node.ID, "tun_setup", map[string]any{
-			"ip": node.VirtualIP,
-		}, 5*time.Second)
+	if node.VirtualIP != "" {
+		registry.SendCmd(node.ID, "tun_setup", map[string]any{"ip": node.VirtualIP}, 5*time.Second)
 	}
 }
