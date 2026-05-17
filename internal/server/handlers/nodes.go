@@ -25,6 +25,7 @@ type updateNodeBody struct {
 	Subnets      *string `json:"subnets"`
 	LocalSubnets *string `json:"local_subnets"`
 	Backbone     *bool   `json:"backbone"`
+	ListenAddr   *string `json:"listen_addr"`
 }
 
 func ListNodes(db *gorm.DB, registry *ws.Registry) gin.HandlerFunc {
@@ -130,6 +131,9 @@ func UpdateNode(db *gorm.DB) gin.HandlerFunc {
 		}
 		if body.Backbone != nil {
 			node.Backbone = *body.Backbone
+		if body.ListenAddr != nil {
+			node.ListenAddr = *body.ListenAddr
+		}
 		}
 		node.UpdatedAt = time.Now()
 
