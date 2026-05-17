@@ -22,8 +22,8 @@ func AutoMesh(db *gorm.DB, registry *ws.Registry, nodeID uint) {
 		return
 	}
 
-	// Step 1: detect subnets from agent if not manually configured
-	if node.LocalSubnets == "" {
+	// Step 1: detect subnets from agent if not configured or cleared
+	if node.LocalSubnets == "" || node.Subnets == "" {
 		detectAndSaveSubnets(db, registry, &node)
 	}
 

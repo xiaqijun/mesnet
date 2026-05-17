@@ -14,9 +14,10 @@ import (
 )
 
 type createNodeBody struct {
-	Name     string `json:"name" binding:"required"`
-	Subnets  string `json:"subnets"`
-	Backbone bool   `json:"backbone"`
+	Name         string `json:"name" binding:"required"`
+	Subnets      string `json:"subnets"`
+	LocalSubnets string `json:"local_subnets"`
+	Backbone     bool   `json:"backbone"`
 }
 
 func ListNodes(db *gorm.DB, registry *ws.Registry) gin.HandlerFunc {
@@ -115,6 +116,7 @@ func UpdateNode(db *gorm.DB) gin.HandlerFunc {
 
 		node.Name = body.Name
 		node.Subnets = body.Subnets
+		node.LocalSubnets = body.LocalSubnets
 		node.Backbone = body.Backbone
 		node.UpdatedAt = time.Now()
 
