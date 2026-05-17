@@ -41,7 +41,6 @@ func (r *RouteManager) Add(subnet string, nodeID, nextHop uint) error {
 
 	r.routes[subnet] = entry
 
-	// Add OS-level route via tun0 for local delivery
 	cmd := exec.Command("ip", "route", "add", subnet, "dev", "tun0")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		outStr := strings.TrimSpace(string(out))
@@ -63,7 +62,7 @@ func (r *RouteManager) Del(subnet string) error {
 	delete(r.routes, subnet)
 
 	cmd := exec.Command("ip", "route", "del", subnet, "dev", "tun0")
-	cmd.CombinedOutput() // ignore errors
+	cmd.CombinedOutput()
 	return nil
 }
 
@@ -131,9 +130,8 @@ func (r *RouteManager) getSubnets() []string {
 }
 
 // DetectSubnets discovers the real physical NIC subnet (default route interface).
-// Virtual interfaces (docker, bridges, VPN) are explicitly excluded.
+// Returns the network address (e.g. 10.1.0.0/22), not the host IP (10.1.0.2/22).
 func (r *RouteManager) DetectSubnets() ([]string, error) {
-	// Find the default route interface (the real physical NIC)
 	out, err := exec.Command("sh", "-c",
 		"ip route show default | awk '{print $5}' | head -1").CombinedOutput()
 	if err != nil {
@@ -144,7 +142,6 @@ func (r *RouteManager) DetectSubnets() ([]string, error) {
 		return nil, nil
 	}
 
-	// Get the primary IPv4 CIDR on that interface
 	out, err = exec.Command("sh", "-c",
 		"ip -4 -o addr show "+iface+" | awk '{print $4}' | head -1").CombinedOutput()
 	if err != nil {
@@ -153,6 +150,11 @@ func (r *RouteManager) DetectSubnets() ([]string, error) {
 	cidr := strings.TrimSpace(string(out))
 	if cidr == "" {
 		return nil, nil
+	}
+
+	// Convert host CIDR to network address: 10.1.0.2/22 → 10.1.0.0/22
+	if _, ipNet, err := net.ParseCIDR(cidr); err == nil {
+		cidr = ipNet.String()
 	}
 
 	log.Printf("detected subnet: %s on %s", cidr, iface)
@@ -186,15 +188,14 @@ func buildIPPacket(src, dst string, id uint16, payload []byte) []byte {
 	totalLen := 20 + len(payload)
 	pkt := make([]byte, totalLen)
 
-	// IPv4 header
-	pkt[0] = 0x45          // Version=4, IHL=5
-	pkt[1] = 0             // DSCP/ECN
+	pkt[0] = 0x45
+	pkt[1] = 0
 	binary.BigEndian.PutUint16(pkt[2:4], uint16(totalLen))
 	binary.BigEndian.PutUint16(pkt[4:6], id)
-	pkt[6] = 0             // Flags
-	pkt[7] = 0             // Fragment offset
-	pkt[8] = 64            // TTL
-	pkt[9] = 253           // Protocol (experimental/testing)
+	pkt[6] = 0
+	pkt[7] = 0
+	pkt[8] = 64
+	pkt[9] = 253
 	copy(pkt[12:16], srcIP)
 	copy(pkt[16:20], dstIP)
 	copy(pkt[20:], payload)
