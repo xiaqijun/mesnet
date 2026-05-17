@@ -240,17 +240,13 @@ func HandleAgent(w http.ResponseWriter, r *http.Request, registry *Registry, db 
 			}
 
 			// Binary messages are relayed tunnel data: [4B target_node_id][payload]
-			if msgType == websocket.BinaryMessage {
-				if len(raw) >= 8 {
-					targetID := uint(raw[0])<<24 | uint(raw[1])<<16 | uint(raw[2])<<8 | uint(raw[3])
-					target := registry.GetConn(targetID)
-					if target != nil {
-						target.WS.WriteMessage(websocket.BinaryMessage, raw[8:])
-}
-}
+			if msgType == websocket.BinaryMessage && len(raw) >= 8 {
+				targetID := uint(raw[0])<<24 | uint(raw[1])<<16 | uint(raw[2])<<8 | uint(raw[3])
+				if target := registry.GetConn(targetID); target != nil {
+					target.WS.WriteMessage(websocket.BinaryMessage, raw[8:])
+				}
 				continue
 			}
-
 		var msg Message
 		if err := json.Unmarshal(raw, &msg); err != nil {
 			log.Printf("agent %d invalid message: %v", n.ID, err)
