@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/mesnet/mesnet/internal/server/models"
+	"github.com/mesnet/mesnet/internal/server/services"
 	"github.com/mesnet/mesnet/internal/server/ws"
 	"gorm.io/gorm"
 )
@@ -25,7 +26,6 @@ func ListNodes(db *gorm.DB, registry *ws.Registry) gin.HandlerFunc {
 		var nodes []models.Node
 		db.Order("created_at desc").Find(&nodes)
 
-		// Inject online status from registry
 		online := registry.ListOnline()
 		onlineSet := make(map[uint]bool)
 		for _, id := range online {
@@ -88,7 +88,6 @@ func CreateNode(db *gorm.DB) gin.HandlerFunc {
 
 		db.Create(&node)
 
-		// Auto-assign virtual IP
 		var count int64
 		db.Model(&models.Node{}).Count(&count)
 		node.VirtualIP = "10.100.0." + strconv.Itoa(int(count))
@@ -135,12 +134,29 @@ func DeleteNode(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		// Delete related tunnels
 		db.Where("left_node_id = ? OR right_node_id = ?", id, id).Delete(&models.Tunnel{})
 		db.Delete(&node)
 
 		addAudit(db, "node.delete", "node", node.ID, "Deleted node "+node.Name)
 		c.JSON(http.StatusOK, gin.H{"message": "deleted"})
+	}
+}
+
+// DetectSubnets triggers subnet detection on an online agent and saves results.
+func DetectSubnets(db *gorm.DB, registry *ws.Registry) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+		var node models.Node
+		if err := db.First(&node, id).Error; err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "node not found"})
+			return
+		}
+		if !registry.IsOnline(uint(id)) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "agent offline"})
+			return
+		}
+		go services.DetectAndSaveSubnets(db, registry, &node)
+		c.JSON(http.StatusOK, gin.H{"message": "detection triggered"})
 	}
 }
 

@@ -99,6 +99,7 @@ func main() {
 			nodes.POST("", handlers.CreateNode(db))
 			nodes.PUT("/:id", handlers.UpdateNode(db))
 			nodes.DELETE("/:id", handlers.DeleteNode(db))
+				nodes.POST("/:id/detect-subnets", handlers.DetectSubnets(db, registry))
 			nodes.GET("/:id/deploy", handlers.GetDeployScript(db, cfg))
 			nodes.GET("/:id/stats", handlers.GetNodeStats(db, registry))
 		}

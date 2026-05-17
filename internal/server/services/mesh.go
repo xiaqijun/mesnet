@@ -24,7 +24,7 @@ func AutoMesh(db *gorm.DB, registry *ws.Registry, nodeID uint) {
 
 	// Step 1: detect subnets from agent if not configured or cleared
 	if node.LocalSubnets == "" || node.Subnets == "" {
-		detectAndSaveSubnets(db, registry, &node)
+		DetectAndSaveSubnets(db, registry, &node)
 	}
 
 	// Step 2: find best backbone peers (max 3, sorted by latency or CPU*Memory)
@@ -100,7 +100,7 @@ func findSecondBest(nodes []models.Node, excludeID uint) *models.Node {
 
 // detectAndSaveSubnets sends subnet_detect to agent and saves result to DB.
 // Detected subnets go to LocalSubnets. Conflict-free subnets go to Subnets.
-func detectAndSaveSubnets(db *gorm.DB, registry *ws.Registry, node *models.Node) {
+func DetectAndSaveSubnets(db *gorm.DB, registry *ws.Registry, node *models.Node) {
 	result, err := registry.SendCmd(node.ID, "subnet_detect", nil, 10*time.Second)
 	if err != nil {
 		log.Printf("mesh: subnet detect failed for %s: %v", node.Name, err)
