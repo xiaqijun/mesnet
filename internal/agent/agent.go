@@ -21,7 +21,8 @@ type Agent struct {
 	cfg    Config
 	ws     *WSClient
 	peers  *PeerManager
-	tun    *TUNDevice
+	tun     *TUNDevice
+	peerPort int
 	crypto *Crypto
 	routes *RouteManager
 	stats  *StatsCollector
@@ -64,6 +65,7 @@ func (a *Agent) Start() error {
 	// Only backbone nodes listen for incoming peer connections
 	if a.cfg.Backbone {
 		if port, err := a.peers.Listen(); err != nil {
+			a.peerPort = port
 			log.Printf("peer listen failed (non-fatal): %v", err)
 		} else if port > 0 {
 			log.Printf("backbone node: listening on :%d", port)
@@ -96,7 +98,7 @@ func (a *Agent) Start() error {
 	})
 
 	// Connect to control plane
-	a.ws = NewWSClient(a.cfg.ServerURL, a.handler)
+	a.ws = NewWSClient(a.cfg.ServerURL, a.handler, a.peerPort)
 	go a.ws.Connect()
 
 	// Start stats collector

@@ -12,17 +12,19 @@ import (
 
 // WSClient maintains a WSS connection to the control plane.
 type WSClient struct {
-	url     string
-	handler *Handler
-	conn    *websocket.Conn
-	mu      sync.Mutex
-	closed  bool
+	url       string
+	handler   *Handler
+	conn      *websocket.Conn
+	peerPort  int
+	mu        sync.Mutex
+	closed    bool
 }
 
-func NewWSClient(url string, handler *Handler) *WSClient {
+func NewWSClient(url string, handler *Handler, peerPort int) *WSClient {
 	return &WSClient{
-		url:     url,
-		handler: handler,
+		url:      url,
+		handler:  handler,
+		peerPort: peerPort,
 	}
 }
 
@@ -49,11 +51,11 @@ func (c *WSClient) Connect() {
 		c.closed = false
 		c.mu.Unlock()
 
-		// Send hello with version
-		c.SendJSON(map[string]string{
-			"type":    "hello",
-			"name":    "agent",
-			"version": version.Current,
+		c.SendJSON(map[string]any{
+			"type":        "hello",
+			"name":        "agent",
+			"version":     version.Current,
+			"listen_port": c.peerPort,
 		})
 
 		c.readLoop(conn)

@@ -50,17 +50,17 @@ func (ac *AgentConn) SendPing() error {
 
 // Registry manages active Agent WebSocket connections.
 type Registry struct {
-	conns    map[uint]*AgentConn
-	onRecv   func(*AgentConn, Message)
-	onHello  func(nodeID uint) // called when agent sends hello (first connect)
-	pending  map[string]chan Message
-	mu       sync.RWMutex
+	conns   map[uint]*AgentConn
+	onRecv  func(*AgentConn, Message)
+	onHello func(nodeID uint)
+	pending map[string]chan Message
+	mu      sync.RWMutex
 }
 
 func NewRegistry() *Registry {
 	return &Registry{
-		conns:    make(map[uint]*AgentConn),
-		pending:  make(map[string]chan Message),
+		conns:   make(map[uint]*AgentConn),
+		pending: make(map[string]chan Message),
 	}
 }
 
@@ -109,7 +109,6 @@ func (r *Registry) ListOnline() []uint {
 	return ids
 }
 
-// SendCmd sends a command to an Agent and waits for the result.
 func (r *Registry) SendCmd(nodeID uint, action string, args any, timeout time.Duration) (*Message, error) {
 	ac := r.GetConn(nodeID)
 	if ac == nil {
@@ -173,21 +172,30 @@ func (r *Registry) Run() {
 	}
 }
 
+func extractRemoteIP(r *http.Request) string {
+	ip := r.RemoteAddr
+	if idx := strings.LastIndex(ip, ":"); idx > 0 {
+		ip = ip[:idx]
+	}
+	// Strip brackets from IPv6
+	ip = strings.TrimPrefix(ip, "[")
+	ip = strings.TrimSuffix(ip, "]")
+	return ip
+}
+
 // HandleAgent handles a WebSocket upgrade for an Agent.
 func HandleAgent(w http.ResponseWriter, r *http.Request, registry *Registry, db *gorm.DB) {
-	// Extract token from URL: /ws/agent/<token>
 	parts := splitPath(r.URL.Path)
 	var token string
 	if len(parts) >= 3 && parts[len(parts)-2] == "agent" {
 		token = parts[len(parts)-1]
 	}
 
-	// Validate token and find node
-	var node struct {
+	var n struct {
 		ID   uint
 		Name string
 	}
-	if err := db.Table("nodes").Where("agent_token = ?", token).Select("id, name").Scan(&node).Error; err != nil || node.ID == 0 {
+	if err := db.Table("nodes").Where("agent_token = ?", token).Select("id, name").Scan(&n).Error; err != nil || n.ID == 0 {
 		http.Error(w, "invalid token", http.StatusUnauthorized)
 		return
 	}
@@ -198,41 +206,41 @@ func HandleAgent(w http.ResponseWriter, r *http.Request, registry *Registry, db 
 		return
 	}
 
+	remoteIP := extractRemoteIP(r)
+
 	ac := &AgentConn{
-		NodeID:   node.ID,
-		NodeName: node.Name,
+		NodeID:   n.ID,
+		NodeName: n.Name,
 		WS:       ws,
 		lastSeen: time.Now(),
 	}
 
-	registry.Register(node.ID, ac)
-	logwatch.Info("agent", fmt.Sprintf("node %d (%s) connected", node.ID, node.Name))
+	registry.Register(n.ID, ac)
+	logwatch.Info("agent", fmt.Sprintf("node %d (%s) connected from %s", n.ID, n.Name, remoteIP))
 	defer func() {
-		registry.Unregister(node.ID)
+		registry.Unregister(n.ID)
 		ws.Close()
-		db.Table("nodes").Where("id = ?", node.ID).Updates(map[string]any{
+		db.Table("nodes").Where("id = ?", n.ID).Updates(map[string]any{
 			"connected": false,
 			"last_seen": time.Now(),
 		})
 	}()
 
-	// Mark connected
-	db.Table("nodes").Where("id = ?", node.ID).Updates(map[string]any{
+	db.Table("nodes").Where("id = ?", n.ID).Updates(map[string]any{
 		"connected": true,
 		"last_seen": time.Now(),
 	})
 
-	// Read loop
 	for {
 		_, raw, err := ws.ReadMessage()
 		if err != nil {
-			log.Printf("agent %d read error: %v", node.ID, err)
+			log.Printf("agent %d read error: %v", n.ID, err)
 			return
 		}
 
 		var msg Message
 		if err := json.Unmarshal(raw, &msg); err != nil {
-			log.Printf("agent %d invalid message: %v", node.ID, err)
+			log.Printf("agent %d invalid message: %v", n.ID, err)
 			continue
 		}
 
@@ -240,25 +248,32 @@ func HandleAgent(w http.ResponseWriter, r *http.Request, registry *Registry, db 
 
 		switch msg.Type {
 		case "pong":
-			// heartbeat ack
 		case "hello":
-			db.Table("nodes").Where("id = ?", node.ID).Updates(map[string]any{
+			db.Table("nodes").Where("id = ?", n.ID).Updates(map[string]any{
 				"connected": true,
 				"last_seen": time.Now(),
 			})
 
-			// Record agent version
 			var hello struct {
-				Type    string `json:"type"`
-				Name    string `json:"name"`
-				Version string `json:"version"`
+				Type       string `json:"type"`
+				Name       string `json:"name"`
+				Version    string `json:"version"`
+				ListenPort int    `json:"listen_port"`
 			}
-			if json.Unmarshal(raw, &hello) == nil && hello.Version != "" {
-				db.Table("nodes").Where("id = ?", node.ID).Update("agent_version", hello.Version)
+			if json.Unmarshal(raw, &hello) == nil {
+				if hello.Version != "" {
+					db.Table("nodes").Where("id = ?", n.ID).Update("agent_version", hello.Version)
+				}
+				// Auto-set listen_addr from remote IP + reported port
+				if hello.ListenPort > 0 {
+					addr := fmt.Sprintf("%s:%d", remoteIP, hello.ListenPort)
+					db.Table("nodes").Where("id = ?", n.ID).Update("listen_addr", addr)
+					log.Printf("agent %d listen_addr auto-set to %s", n.ID, addr)
+				}
 			}
 
 			if registry.onHello != nil {
-				go registry.onHello(node.ID)
+				go registry.onHello(n.ID)
 			}
 		case "result":
 			registry.handleResult(msg)
