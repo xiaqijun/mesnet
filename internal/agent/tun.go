@@ -30,6 +30,9 @@ func NewTUNDevice() *TUNDevice {
 
 // Create opens /dev/net/tun, creates the interface, assigns IP, and brings it up.
 func (t *TUNDevice) Create(ip string) error {
+	if t.up {
+		return nil // already created
+	}
 	fd, err := os.OpenFile("/dev/net/tun", os.O_RDWR, 0)
 	if err != nil {
 		return err

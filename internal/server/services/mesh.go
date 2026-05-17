@@ -22,6 +22,11 @@ func AutoMesh(db *gorm.DB, registry *ws.Registry, nodeID uint) {
 		return
 	}
 
+	// Step 0: ensure TUN device is created (needed for all nodes, not just isolated)
+	if node.VirtualIP != "" {
+		registry.SendCmd(nodeID, "tun_setup", map[string]any{"ip": node.VirtualIP}, 5*time.Second)
+	}
+
 	// Step 1: detect subnets from agent if not configured or cleared
 	if node.LocalSubnets == "" || node.Subnets == "" {
 		DetectAndSaveSubnets(db, registry, &node)
