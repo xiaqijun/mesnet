@@ -104,13 +104,12 @@ func (c *WSClient) handleRelay(raw []byte) {
 }
 
 // RelayTo sends encrypted tunnel data to another agent via control plane relay.
-func (c *WSClient) RelayTo(targetNodeID uint, frame []byte) {
+func (c *WSClient) RelayTo(targetNodeID uint, frame []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.conn == nil || c.closed {
-		return
+		return nil
 	}
-	// Send as binary with target encoded in first 8 bytes
 	header := make([]byte, 8+len(frame))
 	header[0] = byte(targetNodeID >> 24)
 	header[1] = byte(targetNodeID >> 16)
@@ -118,7 +117,7 @@ func (c *WSClient) RelayTo(targetNodeID uint, frame []byte) {
 	header[3] = byte(targetNodeID)
 	copy(header[8:], frame)
 	c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	c.conn.WriteMessage(websocket.BinaryMessage, header)
+	return c.conn.WriteMessage(websocket.BinaryMessage, header)
 }
 
 func (c *WSClient) SendJSON(v any) error {
