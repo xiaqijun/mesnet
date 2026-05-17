@@ -233,20 +233,12 @@ func HandleAgent(w http.ResponseWriter, r *http.Request, registry *Registry, db 
 	})
 
 	for {
-		msgType, raw, err := ws.ReadMessage()
-			if err != nil {
-				log.Printf("agent %d read error: %v", n.ID, err)
-				return
-			}
+		_, raw, err := ws.ReadMessage()
+		if err != nil {
+			log.Printf("agent %d read error: %v", n.ID, err)
+			return
+		}
 
-			// Binary messages are relayed tunnel data: [4B target_node_id][payload]
-			if msgType == websocket.BinaryMessage && len(raw) >= 8 {
-				targetID := uint(raw[0])<<24 | uint(raw[1])<<16 | uint(raw[2])<<8 | uint(raw[3])
-				if target := registry.GetConn(targetID); target != nil {
-					target.WS.WriteMessage(websocket.BinaryMessage, raw[8:])
-				}
-				continue
-			}
 		var msg Message
 		if err := json.Unmarshal(raw, &msg); err != nil {
 			log.Printf("agent %d invalid message: %v", n.ID, err)
@@ -272,21 +264,21 @@ func HandleAgent(w http.ResponseWriter, r *http.Request, registry *Registry, db 
 			if json.Unmarshal(raw, &hello) == nil {
 				if hello.Version != "" {
 					db.Table("nodes").Where("id = ?", n.ID).Update("agent_version", hello.Version)
-}
+				}
 				// Auto-set listen_addr from remote IP + reported port
 				if hello.ListenPort > 0 {
 					addr := fmt.Sprintf("%s:%d", remoteIP, hello.ListenPort)
 					db.Table("nodes").Where("id = ?", n.ID).Update("listen_addr", addr)
-log.Printf("agent %d listen_addr auto-set to %s", n.ID, addr)
-}
+					log.Printf("agent %d listen_addr auto-set to %s", n.ID, addr)
+				}
 				// Auto-update agent if server version > agent version
 				serverVer := version.Current
 				if hello.Version != "" && hello.Version != serverVer {
-log.Printf("agent %d version %s != server %s, triggering update", n.ID, hello.Version, serverVer)
+					log.Printf("agent %d version %s != server %s, triggering update", n.ID, hello.Version, serverVer)
 					go func() {
 						ac.SendJSON(Message{Type: "cmd", ID: "auto_update", Action: "agent_update"})
-}()
-}
+					}()
+				}
 			}
 
 			if registry.onHello != nil {

@@ -10,13 +10,14 @@ import (
 	"github.com/mesnet/mesnet/internal/version"
 )
 
+// WSClient maintains a WSS connection to the control plane.
 type WSClient struct {
-	url      string
-	handler  *Handler
-	conn     *websocket.Conn
-	peerPort int
-	mu       sync.Mutex
-	closed   bool
+	url       string
+	handler   *Handler
+	conn      *websocket.Conn
+	peerPort  int
+	mu        sync.Mutex
+	closed    bool
 }
 
 func NewWSClient(url string, handler *Handler, peerPort int) *WSClient {
@@ -67,20 +68,15 @@ func (c *WSClient) Connect() {
 
 func (c *WSClient) readLoop(conn *websocket.Conn) {
 	for {
-		msgType, raw, err := conn.ReadMessage()
+		_, raw, err := conn.ReadMessage()
 		if err != nil {
 			log.Printf("ws read error: %v", err)
 			return
 		}
 
-		// Binary relayed data from another agent via control plane
-		if msgType == websocket.BinaryMessage {
-			c.handleRelay(raw)
-			continue
-		}
-
 		var msg map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &msg); err != nil {
+			log.Printf("ws invalid message: %v", err)
 			continue
 		}
 
@@ -94,30 +90,6 @@ func (c *WSClient) readLoop(conn *websocket.Conn) {
 			c.handler.Handle(msg)
 		}
 	}
-}
-
-// handleRelay receives data relayed from another agent via control plane.
-func (c *WSClient) handleRelay(raw []byte) {
-	if c.handler.agent.onRecvRelay != nil {
-		c.handler.agent.onRecvRelay(raw)
-	}
-}
-
-// RelayTo sends encrypted tunnel data to another agent via control plane relay.
-func (c *WSClient) RelayTo(targetNodeID uint, frame []byte) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.conn == nil || c.closed {
-		return nil
-	}
-	header := make([]byte, 8+len(frame))
-	header[0] = byte(targetNodeID >> 24)
-	header[1] = byte(targetNodeID >> 16)
-	header[2] = byte(targetNodeID >> 8)
-	header[3] = byte(targetNodeID)
-	copy(header[8:], frame)
-	c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	return c.conn.WriteMessage(websocket.BinaryMessage, header)
 }
 
 func (c *WSClient) SendJSON(v any) error {
