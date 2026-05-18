@@ -2,6 +2,7 @@ package agent
 
 import (
 	"log"
+	"time"
 )
 
 // Tunnel manages encrypted data transport over peer connections.
@@ -75,9 +76,18 @@ func (t *Tunnel) ReceiveEncrypted(frame []byte) ([]byte, error) {
 // per-peer async send queues for backpressure isolation.
 func (t *Tunnel) Run() {
 	go func() {
+		// Wait for TUN device to be created by tun_setup command
+		for !t.agent.tun.IsUp() {
+			time.Sleep(500 * time.Millisecond)
+		}
+
 		for {
 			packet, err := t.agent.tun.Read()
 			if err != nil || len(packet) < 20 {
+				if err != nil {
+					log.Printf("tunnel: TUN read error: %v", err)
+				}
+				time.Sleep(100 * time.Millisecond)
 				continue
 			}
 
