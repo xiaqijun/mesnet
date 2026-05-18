@@ -2,15 +2,22 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/mesnet/mesnet/internal/agent"
+	"github.com/mesnet/mesnet/internal/version"
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "--version" {
+		fmt.Println(version.Current)
+		return
+	}
+
 	serverURL := flag.String("server", "wss://localhost:443/ws/agent/", "control plane URL")
 	listenAddr := flag.String("listen", ":443", "peer listen address (backbone only)")
 	name := flag.String("name", "", "node name")
