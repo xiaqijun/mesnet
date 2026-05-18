@@ -161,6 +161,12 @@ func createLeafTunnel(db *gorm.DB, registry *ws.Registry, leaf, backbone *models
 
 	go func() {
 		// Tell backbone to expect leaf's incoming connection and store leaf's public key
+		if leaf.PublicKey == "" {
+			logwatch.Warn("mesh", fmt.Sprintf("leaf %s (id=%d) has no public key in DB", leaf.Name, leaf.ID))
+		}
+		if backbone.PublicKey == "" {
+			logwatch.Warn("mesh", fmt.Sprintf("backbone %s (id=%d) has no public key in DB", backbone.Name, backbone.ID))
+		}
 		_, errAccept := registry.SendCmd(backbone.ID, "peer_accept", map[string]any{
 			"node_id": leaf.ID, "token": backbone.AgentToken, "public_key": leaf.PublicKey,
 		}, 5*time.Second)

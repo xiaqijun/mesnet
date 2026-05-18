@@ -320,29 +320,54 @@ func (a *Agent) HandleCommand(action string, args json.RawMessage) (any, error) 
 			ch := a.channels[params.NodeID]
 			a.mu.Unlock()
 
-			result := map[string]any{
-				"target_id":           params.NodeID,
-				"channel_established": ch != nil && ch.IsEstablished(),
-				"peer_connected":      false,
-				"rtt_ms":              float64(0),
+			var channelStatus string
+			switch {
+			case ch == nil:
+				channelStatus = "none"
+			case ch.IsEstablished():
+				channelStatus = "established"
+			default:
+				channelStatus = "establishing"
 			}
 
-			// Check if peer WebSocket is connected
+			peerConnected := false
 			for _, pid := range a.peers.ListPeers() {
 				if pid == params.NodeID {
-					result["peer_connected"] = true
+					peerConnected = true
 					break
 				}
 			}
 
-			// Get probe latency
-			latencies := a.probe.Latencies()
-			if rtt, ok := latencies[params.NodeID]; ok {
-				result["rtt_ms"] = rtt
+			// Check if we have routes pointing to this peer
+			hasRoutes := false
+			for _, rte := range a.routes.List() {
+				if rte.NextHop == params.NodeID || rte.NodeID == params.NodeID {
+					hasRoutes = true
+					break
+				}
 			}
-			return result, nil
 
-		case "subnet_detect":
+			_, hasPeerKey := a.peerKeys[params.NodeID]
+
+			var rtt float64
+			latencies := a.probe.Latencies()
+			if v, ok := latencies[params.NodeID]; ok {
+				rtt = v
+			}
+
+			return map[string]any{
+				"target_id":           params.NodeID,
+				"channel_established": ch != nil && ch.IsEstablished(),
+				"channel_status":      channelStatus,
+				"peer_connected":      peerConnected,
+				"has_peer_key":        hasPeerKey,
+				"has_routes":          hasRoutes,
+				"total_routes":        len(a.routes.List()),
+				"total_peers":         len(a.peers.ListPeers()),
+				"rtt_ms":              rtt,
+			}, nil
+
+			case "subnet_detect":
 		subnets, err := a.routes.DetectSubnets()
 		return map[string]any{"subnets": subnets}, err
 

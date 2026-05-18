@@ -27,7 +27,7 @@ export default function NodeDetail() {
         body: JSON.stringify({ target_node_id: peerId }),
       })
       const json = await res.json()
-      setTestResults(prev => ({ ...prev, [tunnelId]: json.result || { error: json.error } }))
+      setTestResults(prev => ({ ...prev, [tunnelId]: { result: json.result, server: json.server, error: json.error } }))
     } catch {
       setTestResults(prev => ({ ...prev, [tunnelId]: { error: '请求失败' } }))
     }
@@ -99,23 +99,48 @@ export default function NodeDetail() {
               </div>
             </div>
             {tr && (
-              <div className="mt-2 text-[10px] space-x-3">
-                {tr.error ? (
-                  <span className="text-red-400">{tr.error}</span>
-                ) : (
-                  <>
-                    <span className={tr.channel_established ? 'text-emerald-400' : 'text-red-400'}>
-                      {tr.channel_established ? '✓ 加密已建立' : '✗ 加密未建立'}
+              <div className="mt-2 text-[10px] space-y-1">
+                {tr.error && !tr.result && (
+                  <div className="text-red-400">{tr.error}</div>
+                )}
+                {tr.server && (
+                  <div className="text-gray-500 space-x-2">
+                    <span>服务端: </span>
+                    <span className={tr.server.src_has_public_key ? 'text-emerald-400' : 'text-red-400'}>
+                      {tr.server.src_has_public_key ? '源公钥✓' : '源公钥✗'}
                     </span>
-                    <span className={tr.peer_connected ? 'text-emerald-400' : 'text-red-400'}>
-                      {tr.peer_connected ? '✓ 已连接' : '✗ 未连接'}
+                    <span className={tr.server.dst_has_public_key ? 'text-emerald-400' : 'text-red-400'}>
+                      {tr.server.dst_has_public_key ? '目标公钥✓' : '目标公钥✗'}
                     </span>
-                    {tr.rtt_ms > 0 && (
-                      <span className={tr.rtt_ms < 50 ? 'text-emerald-400' : 'text-amber-400'}>
-                        RTT: {tr.rtt_ms.toFixed(1)} ms
+                    <span className={tr.server.src_online ? 'text-emerald-400' : 'text-red-400'}>
+                      {tr.server.src_online ? '在线' : '离线'}
+                    </span>
+                  </div>
+                )}
+                {tr.result && (
+                  <div className="space-x-3">
+                    <span>信道: </span>
+                    <span className={
+                      tr.result.channel_status === 'established' ? 'text-emerald-400' :
+                      tr.result.channel_status === 'establishing' ? 'text-amber-400' :
+                      'text-red-400'
+                    }>{tr.result.channel_status}</span>
+                    <span className={tr.result.peer_connected ? 'text-emerald-400' : 'text-red-400'}>
+                      peer: {tr.result.peer_connected ? '✓' : '✗'}
+                    </span>
+                    <span className={tr.result.has_peer_key ? 'text-emerald-400' : 'text-amber-400'}>
+                      密钥: {tr.result.has_peer_key ? '✓' : '✗'}
+                    </span>
+                    <span className={tr.result.has_routes ? 'text-emerald-400' : 'text-amber-400'}>
+                      路由: {tr.result.has_routes ? '✓' : '✗'}
+                    </span>
+                    {tr.result.rtt_ms > 0 && (
+                      <span className={tr.result.rtt_ms < 50 ? 'text-emerald-400' : 'text-amber-400'}>
+                        RTT: {tr.result.rtt_ms.toFixed(1)}ms
                       </span>
                     )}
-                  </>
+                    <span className="text-gray-600">({tr.result.total_peers}peers {tr.result.total_routes}routes)</span>
+                  </div>
                 )}
               </div>
             )}

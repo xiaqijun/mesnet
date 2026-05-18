@@ -267,6 +267,9 @@ func HandleAgent(w http.ResponseWriter, r *http.Request, registry *Registry, db 
 					db.Table("nodes").Where("id = ?", n.ID).Update("agent_version", hello.Version)
 					if hello.PublicKey != "" {
 					db.Table("nodes").Where("id = ?", n.ID).Update("public_key", hello.PublicKey)
+						log.Printf("agent %d public_key stored (len=%d)", n.ID, len(hello.PublicKey))
+					} else {
+						log.Printf("WARNING: agent %d sent empty public_key", n.ID)
 					}
 					}
 				// Auto-set listen_addr from remote IP + reported port

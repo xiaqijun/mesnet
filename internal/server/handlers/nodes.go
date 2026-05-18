@@ -201,15 +201,26 @@ func TestTunnel(db *gorm.DB, registry *ws.Registry) gin.HandlerFunc {
 			return
 		}
 
+		// Check public keys stored on server side
+		var src, dst models.Node
+		db.First(&src, srcID)
+		db.First(&dst, body.TargetNodeID)
+		serverInfo := map[string]any{
+			"src_has_public_key": src.PublicKey != "",
+			"dst_has_public_key": dst.PublicKey != "",
+			"src_online":         registry.IsOnline(uint(srcID)),
+			"dst_online":         registry.IsOnline(body.TargetNodeID),
+		}
+
 		if !registry.IsOnline(uint(srcID)) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "source node offline"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "source node offline", "server": serverInfo})
 			return
 		}
 
 		result, err := registry.SendCmd(uint(srcID), "tunnel_test",
 			map[string]any{"node_id": body.TargetNodeID}, 10*time.Second)
 		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error(), "server": serverInfo})
 			return
 		}
 
@@ -217,7 +228,7 @@ func TestTunnel(db *gorm.DB, registry *ws.Registry) gin.HandlerFunc {
 		if result.Data != nil {
 			json.Unmarshal(result.Data, &data)
 		}
-		c.JSON(http.StatusOK, gin.H{"result": data})
+		c.JSON(http.StatusOK, gin.H{"result": data, "server": serverInfo})
 	}
 }
 
