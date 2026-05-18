@@ -21,7 +21,6 @@ func (t *Tunnel) SendEncrypted(nodeID uint, packet []byte) error {
 	ch := t.agent.channels[nodeID]
 	t.agent.mu.Unlock()
 	if ch == nil || !ch.IsEstablished() {
-		// Fallback to old crypto for backward compat during handshake
 		return t.sendLegacy(nodeID, packet)
 	}
 
@@ -42,26 +41,26 @@ func (t *Tunnel) sendLegacy(nodeID uint, packet []byte) error {
 
 // ReceiveEncrypted decrypts a data frame from a peer using
 // the SecureChannel's AEAD decryption with anti-replay protection.
-func (t *Tunnel) ReceiveEncrypted(frame []byte) ([]byte, error) {
+// senderID is the node ID of the peer who sent this frame.
+func (t *Tunnel) ReceiveEncrypted(senderID uint, frame []byte) ([]byte, error) {
 	hdr, payload, err := DecodeFrameHeader(frame)
 	if err != nil {
 		return nil, err
 	}
 
 	if hdr.Flags&FlagData == 0 && hdr.Flags&FlagProbe == 0 {
-		return nil, nil // skip non-data frames
+		return nil, nil
 	}
 
-	// Try SecureChannel first (with seq-based anti-replay AEAD decrypt)
-	nodeID := uint(hdr.NodeID)
+	// Look up SecureChannel by sender's node ID, not frame header's target ID
 	t.agent.mu.Lock()
-	ch := t.agent.channels[nodeID]
+	ch := t.agent.channels[senderID]
 	t.agent.mu.Unlock()
 
 	if ch != nil && ch.IsEstablished() {
 		plaintext, err := ch.Decrypt(hdr.Seq, payload)
 		if err != nil {
-			log.Printf("tunnel AEAD decrypt failed from node %d seq=%d: %v", nodeID, hdr.Seq, err)
+			log.Printf("tunnel AEAD decrypt failed from node %d seq=%d: %v", senderID, hdr.Seq, err)
 			return nil, err
 		}
 		return plaintext, nil
@@ -72,11 +71,8 @@ func (t *Tunnel) ReceiveEncrypted(frame []byte) ([]byte, error) {
 }
 
 // Run starts the packet forwarding loop from TUN to peers.
-// Each packet is encrypted via SecureChannel and sent through the PacketRouter's
-// per-peer async send queues for backpressure isolation.
 func (t *Tunnel) Run() {
 	go func() {
-		// Wait for TUN device to be created by tun_setup command
 		for !t.agent.tun.IsUp() {
 			time.Sleep(500 * time.Millisecond)
 		}

@@ -93,8 +93,9 @@ func (a *Agent) Start() error {
 	// Handle incoming peer data: decrypt, forward to TUN, or relay
 	a.peers.SetOnRecv(func(nodeID uint, frame []byte) {
 		tun := NewTunnel(a)
-		plaintext, err := tun.ReceiveEncrypted(frame)
+		plaintext, err := tun.ReceiveEncrypted(nodeID, frame)
 		if err != nil {
+			log.Printf("peer %d ReceiveEncrypted failed: %v", nodeID, err)
 			return
 		}
 

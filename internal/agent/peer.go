@@ -153,6 +153,7 @@ func (pm *PeerManager) SendRaw(nodeID uint, data []byte) error {
 	p := pm.peers[nodeID]
 	pm.mu.RUnlock()
 	if p == nil {
+		log.Printf("peer SendRaw: peer %d not connected", nodeID)
 		return nil
 	}
 	p.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
