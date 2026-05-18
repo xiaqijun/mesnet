@@ -67,11 +67,10 @@ func (t *TUNDevice) Create(ip string) error {
 
 	// Enable IP forwarding on the host
 	exec.Command("sh", "-c", "echo 1 > /proc/sys/net/ipv4/ip_forward").Run()
-		// NAT masquerade for TUN traffic so return packets route correctly
-		exec.Command("sh", "-c", "iptables -t nat -C POSTROUTING -o "+t.name+" -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -o "+t.name+" -j MASQUERADE").Run()
+	// NAT masquerade for TUN traffic so return packets route correctly
+	exec.Command("sh", "-c", "iptables -t nat -C POSTROUTING -o "+t.name+" -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -o "+t.name+" -j MASQUERADE").Run()
 
 	t.fd = fd
-	t.name = t.name
 	t.ip = ip
 	t.up = true
 	log.Printf("tun %s created with IP %s", t.name, ip)
