@@ -106,6 +106,7 @@ func main() {
 			nodes.PUT("/:id", handlers.UpdateNode(db))
 			nodes.DELETE("/:id", handlers.DeleteNode(db))
 				nodes.POST("/:id/detect-subnets", handlers.DetectSubnets(db, registry))
+				nodes.POST("/:id/tunnel-test", handlers.TestTunnel(db, registry))
 			nodes.GET("/:id/deploy", handlers.GetDeployScript(db, cfg))
 			nodes.GET("/:id/stats", handlers.GetNodeStats(db, registry))
 		}

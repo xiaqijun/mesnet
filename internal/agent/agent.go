@@ -310,7 +310,39 @@ func (a *Agent) HandleCommand(action string, args json.RawMessage) (any, error) 
 			a.mu.Unlock()
 			return nil, nil
 
-	case "subnet_detect":
+		case "tunnel_test":
+			var params struct {
+				NodeID uint `json:"node_id"`
+			}
+			json.Unmarshal(args, &params)
+
+			a.mu.Lock()
+			ch := a.channels[params.NodeID]
+			a.mu.Unlock()
+
+			result := map[string]any{
+				"target_id":           params.NodeID,
+				"channel_established": ch != nil && ch.IsEstablished(),
+				"peer_connected":      false,
+				"rtt_ms":              float64(0),
+			}
+
+			// Check if peer WebSocket is connected
+			for _, pid := range a.peers.ListPeers() {
+				if pid == params.NodeID {
+					result["peer_connected"] = true
+					break
+				}
+			}
+
+			// Get probe latency
+			latencies := a.probe.Latencies()
+			if rtt, ok := latencies[params.NodeID]; ok {
+				result["rtt_ms"] = rtt
+			}
+			return result, nil
+
+		case "subnet_detect":
 		subnets, err := a.routes.DetectSubnets()
 		return map[string]any{"subnets": subnets}, err
 

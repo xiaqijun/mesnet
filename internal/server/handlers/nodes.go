@@ -3,6 +3,7 @@ package handlers
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -184,6 +185,39 @@ func DetectSubnets(db *gorm.DB, registry *ws.Registry) gin.HandlerFunc {
 		}
 		go services.DetectAndSaveSubnets(db, registry, &node)
 		c.JSON(http.StatusOK, gin.H{"message": "detection triggered"})
+	}
+}
+
+// TestTunnel sends a diagnostic command to a node to test connectivity to a peer.
+func TestTunnel(db *gorm.DB, registry *ws.Registry) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		srcID, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+
+		var body struct {
+			TargetNodeID uint `json:"target_node_id" binding:"required"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		if !registry.IsOnline(uint(srcID)) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "source node offline"})
+			return
+		}
+
+		result, err := registry.SendCmd(uint(srcID), "tunnel_test",
+			map[string]any{"node_id": body.TargetNodeID}, 10*time.Second)
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			return
+		}
+
+		var data map[string]any
+		if result.Data != nil {
+			json.Unmarshal(result.Data, &data)
+		}
+		c.JSON(http.StatusOK, gin.H{"result": data})
 	}
 }
 

@@ -1,4 +1,5 @@
 import { useParams, Link } from 'react-router-dom'
+import { useState } from 'react'
 import { usePolling } from '../hooks/usePolling'
 import { api } from '../api'
 import StatusBadge from '../components/StatusBadge'
@@ -8,12 +9,30 @@ export default function NodeDetail() {
   const { id } = useParams()
   const { data, loading } = usePolling(() => api.getNode(id), 3000)
   const { data: statsData } = usePolling(() => api.getNodeStats(id).catch(() => ({})), 5000)
+  const [testResults, setTestResults] = useState({})
+  const [testing, setTesting] = useState(null)
 
   if (loading) return <div className="text-gray-500">加载中...</div>
   const node = data?.node
   const tunnels = data?.tunnels || []
 
   if (!node) return <div className="text-gray-500">节点不存在</div>
+
+  const handleTunnelTest = async (tunnelId, peerId) => {
+    setTesting(tunnelId)
+    try {
+      const res = await fetch(`/api/nodes/${id}/tunnel-test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target_node_id: peerId }),
+      })
+      const json = await res.json()
+      setTestResults(prev => ({ ...prev, [tunnelId]: json.result || { error: json.error } }))
+    } catch {
+      setTestResults(prev => ({ ...prev, [tunnelId]: { error: '请求失败' } }))
+    }
+    setTesting(null)
+  }
 
   return (
     <div>
@@ -56,17 +75,52 @@ export default function NodeDetail() {
 
       <h3 className="text-sm font-bold text-gray-300 mb-3">关联隧道</h3>
       <div className="space-y-2">
-        {tunnels.map((t) => (
-          <Link key={t.id} to={`/tunnels/${t.id}`} className="block bg-gray-900 border border-gray-800 rounded-lg p-3 hover:border-gray-700 transition-colors">
+        {tunnels.map((t) => {
+          const peerId = t.left_node_id === node.id ? t.right_node_id : t.left_node_id
+          const tr = testResults[t.id]
+          return (
+          <div key={t.id} className="bg-gray-900 border border-gray-800 rounded-lg p-3">
             <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-medium text-gray-200">{t.name}</p>
-                <p className="text-[10px] text-gray-500 mt-0.5">{t.left_subnet} ↔ {t.right_subnet}</p>
+              <Link to={`/tunnels/${t.id}`} className="flex-1 hover:border-gray-700 transition-colors">
+                <div>
+                  <p className="text-xs font-medium text-gray-200">{t.name}</p>
+                  <p className="text-[10px] text-gray-500 mt-0.5">{t.left_subnet} ↔ {t.right_subnet}</p>
+                </div>
+              </Link>
+              <div className="flex items-center gap-2">
+                <StatusBadge online={t.status === 'up'} label={t.status === 'up' ? 'UP' : 'DOWN'} />
+                <button
+                  onClick={() => handleTunnelTest(t.id, peerId)}
+                  disabled={testing === t.id}
+                  className="px-2 py-1 text-[10px] bg-blue-600/20 text-blue-400 rounded hover:bg-blue-600/40 disabled:opacity-50"
+                >
+                  {testing === t.id ? '测试中...' : '连通测试'}
+                </button>
               </div>
-              <StatusBadge online={t.status === 'up'} label={t.status === 'up' ? 'UP' : 'DOWN'} />
             </div>
-          </Link>
-        ))}
+            {tr && (
+              <div className="mt-2 text-[10px] space-x-3">
+                {tr.error ? (
+                  <span className="text-red-400">{tr.error}</span>
+                ) : (
+                  <>
+                    <span className={tr.channel_established ? 'text-emerald-400' : 'text-red-400'}>
+                      {tr.channel_established ? '✓ 加密已建立' : '✗ 加密未建立'}
+                    </span>
+                    <span className={tr.peer_connected ? 'text-emerald-400' : 'text-red-400'}>
+                      {tr.peer_connected ? '✓ 已连接' : '✗ 未连接'}
+                    </span>
+                    {tr.rtt_ms > 0 && (
+                      <span className={tr.rtt_ms < 50 ? 'text-emerald-400' : 'text-amber-400'}>
+                        RTT: {tr.rtt_ms.toFixed(1)} ms
+                      </span>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        )})}
         {tunnels.length === 0 && <p className="text-xs text-gray-500">暂无隧道</p>}
       </div>
     </div>
