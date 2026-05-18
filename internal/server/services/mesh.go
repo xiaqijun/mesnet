@@ -64,21 +64,21 @@ func createBackboneMesh(db *gorm.DB, registry *ws.Registry, a, b *models.Node) {
 		"(left_node_id = ? AND right_node_id = ?) OR (left_node_id = ? AND right_node_id = ?)",
 		a.ID, b.ID, b.ID, a.ID,
 	).First(&existing).Error
-	if err == nil {
-		return
-	}
 
-	tunnel := models.Tunnel{
-		Name:        fmt.Sprintf("%s <-> %s", a.Name, b.Name),
-		LeftNodeID:  a.ID,
-		RightNodeID: b.ID,
-		LeftSubnet:  a.Subnets,
-		RightSubnet: b.Subnets,
-		Status:      "down",
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+	tunnel := existing
+	if err != nil {
+		tunnel = models.Tunnel{
+			Name:        fmt.Sprintf("%s <-> %s", a.Name, b.Name),
+			LeftNodeID:  a.ID,
+			RightNodeID: b.ID,
+			LeftSubnet:  a.Subnets,
+			RightSubnet: b.Subnets,
+			Status:      "down",
+			CreatedAt:   time.Now(),
+			UpdatedAt:   time.Now(),
+		}
+		db.Create(&tunnel)
 	}
-	db.Create(&tunnel)
 
 	go func() {
 		// Pre-register public keys and expected tokens on both sides first,
@@ -153,11 +153,10 @@ func createLeafTunnel(db *gorm.DB, registry *ws.Registry, leaf, backbone *models
 		"(left_node_id = ? AND right_node_id = ?) OR (left_node_id = ? AND right_node_id = ?)",
 		leaf.ID, backbone.ID, backbone.ID, leaf.ID,
 	).First(&existing).Error
-	if err == nil {
-		return
-	}
 
-	tunnel := models.Tunnel{
+	tunnel := existing
+	if err != nil {
+		tunnel = models.Tunnel{
 		Name:        fmt.Sprintf("%s -> %s", leaf.Name, backbone.Name),
 		LeftNodeID:  leaf.ID,
 		RightNodeID: backbone.ID,
@@ -168,7 +167,7 @@ func createLeafTunnel(db *gorm.DB, registry *ws.Registry, leaf, backbone *models
 		UpdatedAt:   time.Now(),
 	}
 	db.Create(&tunnel)
-
+}
 	go func() {
 		// Tell backbone to expect leaf's incoming connection and store leaf's public key
 		if leaf.PublicKey == "" {
