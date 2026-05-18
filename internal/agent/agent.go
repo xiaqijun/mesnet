@@ -138,7 +138,11 @@ func (a *Agent) Start() error {
 				log.Printf("handshake: completed with peer %d", nodeID)
 				return nil, nil
 			}
-			// Already established (duplicate connection), ignore
+			// Already established but peer is re-handshaking — reply with
+			// our ephemeral key so they can complete their side.
+			if ephPub := ch.GetEphemeralPublicKey(); ephPub != nil {
+				return EncodeFrame(FlagHandshake, 0, 0, ephPub), nil
+			}
 			return nil, nil
 		}
 

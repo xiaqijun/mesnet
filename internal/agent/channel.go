@@ -120,7 +120,7 @@ func (sc *SecureChannel) CompleteHandshake(remoteEph []byte) error {
 		sc.remoteStatic,
 		remoteEph,
 	)
-	sc.ephemeralKey = nil // wipe ephemeral key
+	// Keep ephemeral key for potential re-handshakes from the peer
 
 	return sc.installKey(key[:])
 }
@@ -148,6 +148,7 @@ func (sc *SecureChannel) AcceptHandshake(remoteEph []byte) (response []byte, err
 	if err := sc.installKey(key[:]); err != nil {
 		return nil, err
 	}
+	sc.ephemeralKey = ephKey // keep for re-handshakes
 
 	// Response frame with responder's ephemeral key
 	return EncodeFrame(FlagHandshake, 0, 0, ephKey.PublicKey), nil
@@ -281,6 +282,15 @@ func (sc *SecureChannel) SetRemoteStatic(pub []byte) {
 	if len(pub) == 32 {
 		sc.remoteStatic = pub
 	}
+}
+
+// GetEphemeralPublicKey returns the stored ephemeral public key,
+// or nil if not available.
+func (sc *SecureChannel) GetEphemeralPublicKey() []byte {
+	if sc.ephemeralKey != nil {
+		return sc.ephemeralKey.PublicKey
+	}
+	return nil
 }
 
 // Wipe clears all key material from the channel.
