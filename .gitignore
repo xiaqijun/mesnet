@@ -26,3 +26,5 @@ Thumbs.db
 *.exe~
 agent.exe
 server.exe
+/agent
+/server

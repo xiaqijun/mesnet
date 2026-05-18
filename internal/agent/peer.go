@@ -19,20 +19,31 @@ type Peer struct {
 }
 
 type PeerManager struct {
-	peers       map[uint]*Peer
-	listenAddr  string
-	backbone    bool
-	onRecv      func(nodeID uint, frame []byte)                       // called when data received from a peer
-	onHandshake func(nodeID uint, frame []byte) ([]byte, error)      // called when handshake frame received
-	mu          sync.RWMutex
+	peers         map[uint]*Peer
+	listenAddr    string
+	backbone      bool
+	pendingTokens map[string]uint                                    // token → expected nodeID for incoming connections
+	onRecv        func(nodeID uint, frame []byte)                    // called when data received from a peer
+	onHandshake   func(nodeID uint, frame []byte) ([]byte, error)    // called when handshake frame received
+	onProbeResp   func(nodeID uint, seq uint32)                      // called when probe response received
+	mu            sync.RWMutex
 }
 
 func NewPeerManager(listenAddr string, backbone bool) *PeerManager {
 	return &PeerManager{
-		peers:      make(map[uint]*Peer),
-		listenAddr: listenAddr,
-		backbone:   backbone,
+		peers:         make(map[uint]*Peer),
+		listenAddr:    listenAddr,
+		backbone:      backbone,
+		pendingTokens: make(map[string]uint),
 	}
+}
+
+// ExpectConnection registers a pending token → nodeID mapping for an
+// expected incoming peer connection.
+func (pm *PeerManager) ExpectConnection(token string, nodeID uint) {
+	pm.mu.Lock()
+	pm.pendingTokens[token] = nodeID
+	pm.mu.Unlock()
 }
 
 // SetOnRecv sets the callback for incoming peer data.
@@ -43,6 +54,11 @@ func (pm *PeerManager) SetOnRecv(fn func(nodeID uint, frame []byte)) {
 // SetOnHandshake sets the callback for incoming Noise handshake frames.
 func (pm *PeerManager) SetOnHandshake(fn func(nodeID uint, frame []byte) ([]byte, error)) {
 	pm.onHandshake = fn
+}
+
+// SetOnProbeResponse sets the callback for incoming probe response frames.
+func (pm *PeerManager) SetOnProbeResponse(fn func(nodeID uint, seq uint32)) {
+	pm.onProbeResp = fn
 }
 
 func (pm *PeerManager) Listen() (int, error) {
@@ -81,11 +97,21 @@ func (pm *PeerManager) handleIncoming(w http.ResponseWriter, r *http.Request) {
 		n = 8
 	}
 	log.Printf("incoming peer connection, token=%s...", token[:n])
+
+	// Look up the expected node ID for this token
 	pm.mu.Lock()
-	pm.peers[0] = &Peer{Conn: conn, LastSeen: time.Now()}
+	nodeID, ok := pm.pendingTokens[token]
+	if ok {
+		delete(pm.pendingTokens, token) // one-time use
+	}
+	if !ok {
+		nodeID = 0 // fallback: unknown peer
+		log.Printf("incoming peer: unknown token %s..., using nodeID=0", token[:n])
+	}
+	pm.peers[nodeID] = &Peer{NodeID: nodeID, Conn: conn, LastSeen: time.Now()}
 	pm.mu.Unlock()
 	// Start reader for incoming data + handshake
-	go pm.readLoop(0, conn)
+	go pm.readLoop(nodeID, conn)
 }
 
 func (pm *PeerManager) Connect(nodeID uint, addr, token string) error {
@@ -186,8 +212,9 @@ func (pm *PeerManager) readLoop(nodeID uint, conn *websocket.Conn) {
 		pm.mu.RUnlock()
 
 		// Check if this is a handshake frame
+		var flags uint16
 		if len(data) >= 8 {
-			flags := (uint16(data[6]) << 8) | uint16(data[7])
+			flags = (uint16(data[6]) << 8) | uint16(data[7])
 			if flags&FlagHandshake != 0 && pm.onHandshake != nil {
 				response, err := pm.onHandshake(nodeID, data)
 				if err != nil {
@@ -201,6 +228,22 @@ func (pm *PeerManager) readLoop(nodeID uint, conn *websocket.Conn) {
 				}
 				continue
 			}
+		}
+
+		// Check if this is a probe frame → respond immediately
+		if flags&FlagProbe != 0 {
+			hdr, _, _ := DecodeFrameHeader(data)
+			response := EncodeFrame(FlagProbeResponse, hdr.Seq, uint64(nodeID), nil)
+			conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+			conn.WriteMessage(websocket.BinaryMessage, response)
+			continue
+		}
+
+		// Check if this is a probe response → notify probe tracker
+		if flags&FlagProbeResponse != 0 && pm.onProbeResp != nil {
+			hdr, _, _ := DecodeFrameHeader(data)
+			pm.onProbeResp(nodeID, hdr.Seq)
+			continue
 		}
 
 		// Normal data frame

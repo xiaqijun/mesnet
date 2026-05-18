@@ -90,7 +90,8 @@ func (s *StatsCollector) report() {
 		"type":    "stats",
 		"tunnels": tunnels,
 		"system": map[string]any{
-			"cpu_pct": 0,
+			"cpu_pct": readCPU(),
+			"mem_mb":  readMemMB(),
 		},
 	}
 

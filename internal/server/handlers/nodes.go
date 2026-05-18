@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -94,10 +95,19 @@ func CreateNode(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		db.Create(&node)
-
-		var count int64
-		db.Model(&models.Node{}).Count(&count)
-		node.VirtualIP = "10.100.0." + strconv.Itoa(int(count))
+		// Allocate next available virtual IP (scan existing to avoid conflicts)
+		var maxIP int
+		var ips []string
+		db.Model(&models.Node{}).Where("virtual_ip != ''").Pluck("virtual_ip", &ips)
+		for _, ip := range ips {
+			parts := strings.Split(ip, ".")
+			if len(parts) == 4 && parts[0] == "10" && parts[1] == "100" && parts[2] == "0" {
+				if n, err := strconv.Atoi(parts[3]); err == nil && n > maxIP {
+					maxIP = n
+				}
+			}
+		}
+		node.VirtualIP = "10.100.0." + strconv.Itoa(maxIP+1)
 		db.Save(&node)
 
 		addAudit(db, "node.create", "node", node.ID, "Created node "+node.Name)
@@ -136,8 +146,8 @@ func UpdateNode(db *gorm.DB) gin.HandlerFunc {
 			node.ListenAddr = *body.ListenAddr
 		}
 		node.UpdatedAt = time.Now()
-
 		db.Save(&node)
+
 		addAudit(db, "node.update", "node", node.ID, "Updated node "+node.Name)
 		c.JSON(http.StatusOK, gin.H{"node": node})
 	}

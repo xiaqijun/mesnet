@@ -235,6 +235,9 @@ func (a *Agent) HandleCommand(action string, args json.RawMessage) (any, error) 
 			}
 		}
 
+		// Register expected incoming connection (peer dials us using our token)
+		a.peers.ExpectConnection(a.cfg.Token, params.NodeID)
+
 		return nil, a.peers.Connect(params.NodeID, params.PeerAddr, params.PeerToken)
 
 	case "peer_disconnect":
