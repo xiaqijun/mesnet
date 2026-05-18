@@ -95,8 +95,11 @@ func (a *Agent) Start() error {
 		tun := NewTunnel(a)
 		plaintext, err := tun.ReceiveEncrypted(nodeID, frame)
 		if err != nil {
-			log.Printf("peer %d ReceiveEncrypted failed: %v", nodeID, err)
+			log.Printf("onRecv: decrypt from peer %d failed: %v", nodeID, err)
 			return
+		}
+		if plaintext == nil {
+			return // non-data frame
 		}
 
 		dstIP := extractDstIP(plaintext)
@@ -261,11 +264,11 @@ func (a *Agent) HandleCommand(action string, args json.RawMessage) (any, error) 
 			}
 		}
 
-		// Check if we already have an established channel for this peer
+		// Skip if we already have a channel for this peer (any state)
 		a.mu.Lock()
-		existingCh, hasChannel := a.channels[params.NodeID]
+		_, hasChannel := a.channels[params.NodeID]
 		a.mu.Unlock()
-		if hasChannel && existingCh.IsEstablished() {
+		if hasChannel {
 			// Already connected, just re-send routes if needed
 			return nil, nil
 		}

@@ -1,11 +1,13 @@
 package agent
 
 import (
+	"bytes"
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
 	"errors"
 	"io"
+	"sort"
 	"sync/atomic"
 
 	"golang.org/x/crypto/chacha20poly1305"
@@ -166,23 +168,23 @@ func (sc *SecureChannel) AcceptHandshake(remoteEph []byte) (response []byte, err
 //	    "mesnet-v2-session"
 //	)
 func computeSharedSecret(myStaticPriv, myEphPriv, remoteStaticPub, remoteEphPub []byte) [32]byte {
-	// dh1: ephemeral-ephemeral (Perfect Forward Secrecy)
 	dh1, _ := curve25519.X25519(myEphPriv, remoteEphPub)
-
-	// dh2: static-ephemeral (mutual authentication)
 	dh2, _ := curve25519.X25519(myStaticPriv, remoteEphPub)
-
-	// dh3: ephemeral-static (mutual authentication)
 	dh3, _ := curve25519.X25519(myEphPriv, remoteStaticPub)
-
-	// dh4: static-static (identity binding)
 	dh4, _ := curve25519.X25519(myStaticPriv, remoteStaticPub)
 
+	// Sort DH outputs for consistent ordering regardless of initiator/responder role.
+	// Without sorting, dh2 and dh3 swap places depending on which side calls this,
+	// producing different hash inputs and mismatched session keys.
+	dh := [][]byte{dh1, dh2, dh3, dh4}
+	sort.Slice(dh, func(i, j int) bool {
+		return bytes.Compare(dh[i], dh[j]) < 0
+	})
+
 	h := sha256.New()
-	h.Write(dh1)
-	h.Write(dh2)
-	h.Write(dh3)
-	h.Write(dh4)
+	for _, d := range dh {
+		h.Write(d)
+	}
 	h.Write([]byte("mesnet-v2-session"))
 
 	var key [32]byte
