@@ -81,6 +81,16 @@ func createBackboneMesh(db *gorm.DB, registry *ws.Registry, a, b *models.Node) {
 	db.Create(&tunnel)
 
 	go func() {
+		// Pre-register public keys and expected tokens on both sides first,
+		// so incoming handshake frames can be processed regardless of
+		// which side dials first.
+		registry.SendCmd(a.ID, "peer_accept", map[string]any{
+			"node_id": b.ID, "token": a.AgentToken, "public_key": b.PublicKey,
+		}, 5*time.Second)
+		registry.SendCmd(b.ID, "peer_accept", map[string]any{
+			"node_id": a.ID, "token": b.AgentToken, "public_key": a.PublicKey,
+		}, 5*time.Second)
+
 		_, errA := registry.SendCmd(a.ID, "peer_connect", map[string]any{
 			"node_id": b.ID, "peer_addr": b.ListenAddr, "peer_token": b.AgentToken, "tunnel_id": tunnel.ID, "public_key": b.PublicKey,
 		}, 10*time.Second)
