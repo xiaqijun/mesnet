@@ -113,9 +113,48 @@ func (a *Agent) Start() error {
 		}
 	})
 
-	// Handle incoming handshake frames at peer level
+	// Handle incoming handshake frames at peer level.
+	// This callback handles BOTH directions:
+	//   - If a SecureChannel already exists for the peer but is not established,
+	//     this is a handshake response → CompleteHandshake
+	//   - Otherwise it's a new incoming handshake → AcceptHandshake
 	a.peers.SetOnHandshake(func(nodeID uint, frame []byte) ([]byte, error) {
-		return a.acceptHandshake(nodeID, frame)
+		hdr, payload, err := DecodeFrameHeader(frame)
+		if err != nil || hdr.Flags&FlagHandshake == 0 {
+			return nil, err
+		}
+
+		a.mu.Lock()
+		ch, exists := a.channels[nodeID]
+		a.mu.Unlock()
+
+		if exists && !ch.IsEstablished() {
+			// Handshake response: we initiated, they responded
+			if err := ch.CompleteHandshake(payload); err != nil {
+				log.Printf("handshake: complete failed for peer %d: %v", nodeID, err)
+				return nil, err
+			}
+			log.Printf("handshake: completed with peer %d", nodeID)
+			return nil, nil
+		}
+
+		// New incoming handshake: we are the responder
+		peerPub, ok := a.peerKeys[nodeID]
+		if !ok {
+			log.Printf("handshake: no public key for peer %d", nodeID)
+			return nil, ErrHandshakeFailed
+		}
+		ch = NewSecureChannel(a.keyPair, peerPub)
+		response, err := ch.AcceptHandshake(payload)
+		if err != nil {
+			log.Printf("handshake: accept failed for peer %d: %v", nodeID, err)
+			return nil, err
+		}
+		a.mu.Lock()
+		a.channels[nodeID] = ch
+		a.mu.Unlock()
+		log.Printf("handshake: accepted from peer %d", nodeID)
+		return response, nil
 	})
 
 	// Connect to control plane
@@ -157,33 +196,6 @@ func (a *Agent) PublicKeyHex() string {
 		return ""
 	}
 	return hexEncode(a.keyPair.PublicKey)
-}
-
-// acceptHandshake processes an incoming Noise handshake from a peer.
-func (a *Agent) acceptHandshake(nodeID uint, frame []byte) ([]byte, error) {
-	hdr, payload, err := DecodeFrameHeader(frame)
-	if err != nil || hdr.Flags&FlagHandshake == 0 {
-		return nil, err
-	}
-
-	peerPub, ok := a.peerKeys[nodeID]
-	if !ok {
-		log.Printf("handshake: no public key for peer %d", nodeID)
-		return nil, ErrHandshakeFailed
-	}
-
-	ch := NewSecureChannel(a.keyPair, peerPub)
-	response, err := ch.AcceptHandshake(payload)
-	if err != nil {
-		log.Printf("handshake: accept failed for peer %d: %v", nodeID, err)
-		return nil, err
-	}
-
-	a.mu.Lock()
-	a.channels[nodeID] = ch
-	a.mu.Unlock()
-	log.Printf("handshake: accepted from peer %d", nodeID)
-	return response, nil
 }
 
 func (a *Agent) HandleCommand(action string, args json.RawMessage) (any, error) {
@@ -235,10 +247,28 @@ func (a *Agent) HandleCommand(action string, args json.RawMessage) (any, error) 
 			}
 		}
 
+		// Create SecureChannel and generate init handshake frame
+		peerPub := a.peerKeys[params.NodeID]
+		ch := NewSecureChannel(a.keyPair, peerPub)
+		initFrame, err := ch.InitiateHandshake()
+		if err != nil {
+			return nil, err
+		}
+		a.mu.Lock()
+		a.channels[params.NodeID] = ch
+		a.mu.Unlock()
+
 		// Register expected incoming connection (peer dials us using our token)
 		a.peers.ExpectConnection(a.cfg.Token, params.NodeID)
 
-		return nil, a.peers.Connect(params.NodeID, params.PeerAddr, params.PeerToken)
+		// Connect to peer
+		if err := a.peers.Connect(params.NodeID, params.PeerAddr, params.PeerToken); err != nil {
+			return nil, err
+		}
+
+		// Send init handshake frame (contains our ephemeral public key)
+		a.peers.SendRaw(params.NodeID, initFrame)
+		return nil, nil
 
 	case "peer_disconnect":
 		var params struct {

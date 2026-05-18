@@ -71,7 +71,8 @@ func (t *Tunnel) ReceiveEncrypted(frame []byte) ([]byte, error) {
 }
 
 // Run starts the packet forwarding loop from TUN to peers.
-// Uses PacketRouter for async, non-blocking sends.
+// Each packet is encrypted via SecureChannel and sent through the PacketRouter's
+// per-peer async send queues for backpressure isolation.
 func (t *Tunnel) Run() {
 	go func() {
 		for {
@@ -81,11 +82,13 @@ func (t *Tunnel) Run() {
 			}
 
 			dstIP := extractDstIP(packet)
-			if err := t.agent.router.Route(dstIP, packet); err != nil {
-				if err != ErrNoRoute {
-					log.Printf("tunnel route to %s failed: %v", dstIP, err)
-				}
+			_, nextHop := t.agent.routes.Lookup(dstIP)
+			if nextHop == 0 {
 				continue
+			}
+
+			if err := t.SendEncrypted(nextHop, packet); err != nil {
+				log.Printf("tunnel send to node %d failed: %v", nextHop, err)
 			}
 		}
 	}()

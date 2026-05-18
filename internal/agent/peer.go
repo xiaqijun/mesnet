@@ -124,29 +124,9 @@ func (pm *PeerManager) Connect(nodeID uint, addr, token string) error {
 	pm.mu.Unlock()
 	log.Printf("connected to peer %d at %s", nodeID, addr)
 
-	// Initiate Noise handshake
-	pm.initiateHandshake(nodeID, conn)
-
 	// Start reader for incoming data + handshake responses
 	go pm.readLoop(nodeID, conn)
 	return nil
-}
-
-// initiateHandshake starts the Noise handshake with the connected peer.
-func (pm *PeerManager) initiateHandshake(nodeID uint, conn *websocket.Conn) {
-	if pm.onHandshake == nil {
-		return
-	}
-
-	// Build initiator handshake frame (dummy frame to trigger the actual handshake)
-	// The real handshake is done via SecureChannel which the onHandshake callback uses
-	hsFrame := EncodeFrame(FlagHandshake, 0, uint64(nodeID), nil)
-	if err := conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
-		return
-	}
-	if err := conn.WriteMessage(websocket.BinaryMessage, hsFrame); err != nil {
-		log.Printf("handshake: init send to peer %d failed: %v", nodeID, err)
-	}
 }
 
 func (pm *PeerManager) Disconnect(nodeID uint) {

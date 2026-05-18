@@ -100,9 +100,19 @@ func createBackboneMesh(db *gorm.DB, registry *ws.Registry, a, b *models.Node) {
 				"subnet": s, "node_id": a.ID, "next_hop": a.ID,
 			}, 5*time.Second)
 		}
+		if a.VirtualIP != "" {
+			registry.SendCmd(b.ID, "route_add", map[string]any{
+				"subnet": a.VirtualIP + "/32", "node_id": a.ID, "next_hop": a.ID,
+			}, 5*time.Second)
+		}
 		for _, s := range splitSubnets(b.Subnets) {
 			registry.SendCmd(a.ID, "route_add", map[string]any{
 				"subnet": s, "node_id": b.ID, "next_hop": b.ID,
+			}, 5*time.Second)
+		}
+		if b.VirtualIP != "" {
+			registry.SendCmd(a.ID, "route_add", map[string]any{
+				"subnet": b.VirtualIP + "/32", "node_id": b.ID, "next_hop": b.ID,
 			}, 5*time.Second)
 		}
 
@@ -165,9 +175,19 @@ func createLeafTunnel(db *gorm.DB, registry *ws.Registry, leaf, backbone *models
 				"subnet": s, "node_id": backbone.ID, "next_hop": backbone.ID,
 			}, 5*time.Second)
 		}
+		if backbone.VirtualIP != "" {
+			registry.SendCmd(leaf.ID, "route_add", map[string]any{
+				"subnet": backbone.VirtualIP + "/32", "node_id": backbone.ID, "next_hop": backbone.ID,
+			}, 5*time.Second)
+		}
 		for _, s := range splitSubnets(leaf.Subnets) {
 			registry.SendCmd(backbone.ID, "route_add", map[string]any{
 				"subnet": s, "node_id": leaf.ID, "next_hop": leaf.ID,
+			}, 5*time.Second)
+		}
+		if leaf.VirtualIP != "" {
+			registry.SendCmd(backbone.ID, "route_add", map[string]any{
+				"subnet": leaf.VirtualIP + "/32", "node_id": leaf.ID, "next_hop": leaf.ID,
 			}, 5*time.Second)
 		}
 
@@ -295,6 +315,9 @@ func syncAllRoutes(db *gorm.DB, registry *ws.Registry) {
 	for _, n := range nodes {
 		for _, s := range splitSubnets(n.Subnets) {
 			allSubnets = append(allSubnets, si{s, n.ID})
+		}
+		if n.VirtualIP != "" {
+			allSubnets = append(allSubnets, si{n.VirtualIP + "/32", n.ID})
 		}
 	}
 	var tunnels []models.Tunnel
