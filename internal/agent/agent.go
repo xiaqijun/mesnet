@@ -128,13 +128,17 @@ func (a *Agent) Start() error {
 		ch, exists := a.channels[nodeID]
 		a.mu.Unlock()
 
-		if exists && !ch.IsEstablished() {
-			// Handshake response: we initiated, they responded
-			if err := ch.CompleteHandshake(payload); err != nil {
-				log.Printf("handshake: complete failed for peer %d: %v", nodeID, err)
-				return nil, err
+		if exists {
+			if !ch.IsEstablished() {
+				// Handshake response: we initiated, they responded
+				if err := ch.CompleteHandshake(payload); err != nil {
+					log.Printf("handshake: complete failed for peer %d: %v", nodeID, err)
+					return nil, err
+				}
+				log.Printf("handshake: completed with peer %d", nodeID)
+				return nil, nil
 			}
-			log.Printf("handshake: completed with peer %d", nodeID)
+			// Already established (duplicate connection), ignore
 			return nil, nil
 		}
 
