@@ -260,6 +260,15 @@ func (a *Agent) HandleCommand(action string, args json.RawMessage) (any, error) 
 			}
 		}
 
+		// Check if we already have an established channel for this peer
+		a.mu.Lock()
+		existingCh, hasChannel := a.channels[params.NodeID]
+		a.mu.Unlock()
+		if hasChannel && existingCh.IsEstablished() {
+			// Already connected, just re-send routes if needed
+			return nil, nil
+		}
+
 		// Create SecureChannel and generate init handshake frame
 		peerPub := a.peerKeys[params.NodeID]
 		ch := NewSecureChannel(a.keyPair, peerPub)
