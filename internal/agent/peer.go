@@ -176,7 +176,10 @@ func (pm *PeerManager) readLoop(nodeID uint, conn *websocket.Conn) {
 		if err != nil {
 			log.Printf("peer %d read error: %v", nodeID, err)
 			pm.mu.Lock()
-			delete(pm.peers, nodeID)
+			// Only delete if this connection is still the active one
+			if p, ok := pm.peers[nodeID]; ok && p.Conn == conn {
+				delete(pm.peers, nodeID)
+			}
 			pm.mu.Unlock()
 			return
 		}
