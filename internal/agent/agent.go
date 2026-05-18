@@ -209,7 +209,12 @@ func (a *Agent) HandleCommand(action string, args json.RawMessage) (any, error) 
 			IP string `json:"ip"`
 		}
 		json.Unmarshal(args, &params)
-		return nil, a.tun.Create(params.IP)
+		if err := a.tun.Create(params.IP); err != nil {
+			return nil, err
+		}
+		// Sync any routes that arrived before TUN was ready
+		a.routes.FlushKernel()
+		return nil, nil
 
 	case "tun_destroy":
 		return nil, a.tun.Destroy()
