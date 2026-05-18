@@ -46,12 +46,9 @@ func (r *RouteManager) Add(subnet string, nodeID, nextHop uint) error {
 
 	// Only sync to kernel if TUN device exists
 	if _, err := os.Stat("/sys/class/net/tun0"); err == nil {
-		cmd := exec.Command("ip", "route", "add", subnet, "dev", "tun0")
+		cmd := exec.Command("ip", "route", "replace", subnet, "dev", "tun0")
 		if out, err := cmd.CombinedOutput(); err != nil {
-			outStr := strings.TrimSpace(string(out))
-			if !strings.Contains(outStr, "File exists") {
-				log.Printf("route add %s dev tun0: %s", subnet, outStr)
-			}
+			log.Printf("route replace %s dev tun0: %s", subnet, strings.TrimSpace(string(out)))
 		}
 	}
 	return nil
@@ -64,13 +61,10 @@ func (r *RouteManager) FlushKernel() {
 	defer r.mu.RUnlock()
 
 	for subnet := range r.routes {
-		cmd := exec.Command("ip", "route", "add", subnet, "dev", "tun0")
+		cmd := exec.Command("ip", "route", "replace", subnet, "dev", "tun0")
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			outStr := strings.TrimSpace(string(out))
-			if !strings.Contains(outStr, "File exists") {
-				log.Printf("route flush %s dev tun0: %s", subnet, outStr)
-			}
+			log.Printf("route flush %s dev tun0: %s", subnet, strings.TrimSpace(string(out)))
 		}
 	}
 }
