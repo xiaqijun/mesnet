@@ -82,10 +82,10 @@ func createBackboneMesh(db *gorm.DB, registry *ws.Registry, a, b *models.Node) {
 
 	go func() {
 		_, errA := registry.SendCmd(a.ID, "peer_connect", map[string]any{
-			"node_id": b.ID, "peer_addr": b.ListenAddr, "peer_token": b.AgentToken, "tunnel_id": tunnel.ID,
+			"node_id": b.ID, "peer_addr": b.ListenAddr, "peer_token": b.AgentToken, "tunnel_id": tunnel.ID, "public_key": b.PublicKey,
 		}, 10*time.Second)
 		_, errB := registry.SendCmd(b.ID, "peer_connect", map[string]any{
-			"node_id": a.ID, "peer_addr": a.ListenAddr, "peer_token": a.AgentToken, "tunnel_id": tunnel.ID,
+			"node_id": a.ID, "peer_addr": a.ListenAddr, "peer_token": a.AgentToken, "tunnel_id": tunnel.ID, "public_key": a.PublicKey,
 		}, 10*time.Second)
 
 		if errA != nil || errB != nil {
@@ -151,7 +151,7 @@ func createLeafTunnel(db *gorm.DB, registry *ws.Registry, leaf, backbone *models
 
 	go func() {
 		_, err := registry.SendCmd(leaf.ID, "peer_connect", map[string]any{
-			"node_id": backbone.ID, "peer_addr": backbone.ListenAddr, "peer_token": backbone.AgentToken, "tunnel_id": tunnel.ID,
+			"node_id": backbone.ID, "peer_addr": backbone.ListenAddr, "peer_token": backbone.AgentToken, "tunnel_id": tunnel.ID, "public_key": backbone.PublicKey,
 		}, 10*time.Second)
 		if err != nil {
 			logwatch.Warn("mesh", fmt.Sprintf("leaf peer_connect failed %s->%s: %v", leaf.Name, backbone.Name, err))

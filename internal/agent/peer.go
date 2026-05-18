@@ -19,11 +19,12 @@ type Peer struct {
 }
 
 type PeerManager struct {
-	peers     map[uint]*Peer
-	listenAddr string
-	backbone  bool
-	onRecv    func(nodeID uint, frame []byte) // called when data received from a peer
-	mu        sync.RWMutex
+	peers       map[uint]*Peer
+	listenAddr  string
+	backbone    bool
+	onRecv      func(nodeID uint, frame []byte)                       // called when data received from a peer
+	onHandshake func(nodeID uint, frame []byte) ([]byte, error)      // called when handshake frame received
+	mu          sync.RWMutex
 }
 
 func NewPeerManager(listenAddr string, backbone bool) *PeerManager {
@@ -37,6 +38,11 @@ func NewPeerManager(listenAddr string, backbone bool) *PeerManager {
 // SetOnRecv sets the callback for incoming peer data.
 func (pm *PeerManager) SetOnRecv(fn func(nodeID uint, frame []byte)) {
 	pm.onRecv = fn
+}
+
+// SetOnHandshake sets the callback for incoming Noise handshake frames.
+func (pm *PeerManager) SetOnHandshake(fn func(nodeID uint, frame []byte) ([]byte, error)) {
+	pm.onHandshake = fn
 }
 
 func (pm *PeerManager) Listen() (int, error) {
@@ -78,7 +84,7 @@ func (pm *PeerManager) handleIncoming(w http.ResponseWriter, r *http.Request) {
 	pm.mu.Lock()
 	pm.peers[0] = &Peer{Conn: conn, LastSeen: time.Now()}
 	pm.mu.Unlock()
-	// Start reader for incoming data
+	// Start reader for incoming data + handshake
 	go pm.readLoop(0, conn)
 }
 
@@ -91,9 +97,30 @@ func (pm *PeerManager) Connect(nodeID uint, addr, token string) error {
 	pm.peers[nodeID] = &Peer{NodeID: nodeID, Conn: conn, LastSeen: time.Now()}
 	pm.mu.Unlock()
 	log.Printf("connected to peer %d at %s", nodeID, addr)
-	// Start reader for incoming data
+
+	// Initiate Noise handshake
+	pm.initiateHandshake(nodeID, conn)
+
+	// Start reader for incoming data + handshake responses
 	go pm.readLoop(nodeID, conn)
 	return nil
+}
+
+// initiateHandshake starts the Noise handshake with the connected peer.
+func (pm *PeerManager) initiateHandshake(nodeID uint, conn *websocket.Conn) {
+	if pm.onHandshake == nil {
+		return
+	}
+
+	// Build initiator handshake frame (dummy frame to trigger the actual handshake)
+	// The real handshake is done via SecureChannel which the onHandshake callback uses
+	hsFrame := EncodeFrame(FlagHandshake, 0, uint64(nodeID), nil)
+	if err := conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		return
+	}
+	if err := conn.WriteMessage(websocket.BinaryMessage, hsFrame); err != nil {
+		log.Printf("handshake: init send to peer %d failed: %v", nodeID, err)
+	}
 }
 
 func (pm *PeerManager) Disconnect(nodeID uint) {
@@ -135,7 +162,8 @@ func (pm *PeerManager) Close() {
 	}
 }
 
-// readLoop reads binary frames from a peer connection and dispatches to onRecv.
+// readLoop reads binary frames from a peer connection and dispatches to
+// onHandshake (for handshake frames) or onRecv (for data frames).
 func (pm *PeerManager) readLoop(nodeID uint, conn *websocket.Conn) {
 	for {
 		msgType, data, err := conn.ReadMessage()
@@ -146,15 +174,39 @@ func (pm *PeerManager) readLoop(nodeID uint, conn *websocket.Conn) {
 			pm.mu.Unlock()
 			return
 		}
-		if msgType != websocket.BinaryMessage || pm.onRecv == nil {
+		if msgType != websocket.BinaryMessage {
 			continue
 		}
+
+		// Update last seen
 		pm.mu.RLock()
 		if p, ok := pm.peers[nodeID]; ok {
 			p.LastSeen = time.Now()
 		}
 		pm.mu.RUnlock()
-		pm.onRecv(nodeID, data)
+
+		// Check if this is a handshake frame
+		if len(data) >= 8 {
+			flags := (uint16(data[6]) << 8) | uint16(data[7])
+			if flags&FlagHandshake != 0 && pm.onHandshake != nil {
+				response, err := pm.onHandshake(nodeID, data)
+				if err != nil {
+					log.Printf("peer %d handshake failed: %v", nodeID, err)
+					return
+				}
+				// Send handshake response back
+				if response != nil {
+					conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+					conn.WriteMessage(websocket.BinaryMessage, response)
+				}
+				continue
+			}
+		}
+
+		// Normal data frame
+		if pm.onRecv != nil {
+			pm.onRecv(nodeID, data)
+		}
 	}
 }
 

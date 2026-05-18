@@ -17,6 +17,7 @@ type Node struct {
 	CPU          int       `gorm:"default:0" json:"cpu"`
 	MemoryMB     int       `gorm:"default:0" json:"memory_mb"`
 	OSInfo       string    `gorm:"size:200" json:"os_info"`
+	PublicKey    string    `gorm:"text" json:"-"`               // Curve25519 static public key (hex)
 	LastSeen     time.Time `json:"last_seen"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`

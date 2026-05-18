@@ -260,17 +260,21 @@ func HandleAgent(w http.ResponseWriter, r *http.Request, registry *Registry, db 
 				Name       string `json:"name"`
 				Version    string `json:"version"`
 				ListenPort int    `json:"listen_port"`
+				PublicKey  string `json:"public_key"`
 }
 			if json.Unmarshal(raw, &hello) == nil {
 				if hello.Version != "" {
 					db.Table("nodes").Where("id = ?", n.ID).Update("agent_version", hello.Version)
-				}
+					if hello.PublicKey != "" {
+					db.Table("nodes").Where("id = ?", n.ID).Update("public_key", hello.PublicKey)
+					}
+					}
 				// Auto-set listen_addr from remote IP + reported port
 				if hello.ListenPort > 0 {
 					addr := fmt.Sprintf("%s:%d", remoteIP, hello.ListenPort)
 					db.Table("nodes").Where("id = ?", n.ID).Update("listen_addr", addr)
 					log.Printf("agent %d listen_addr auto-set to %s", n.ID, addr)
-				}
+					}
 				// Auto-update agent if server version > agent version
 				serverVer := version.Current
 				if hello.Version != "" && hello.Version != serverVer {
@@ -278,7 +282,7 @@ func HandleAgent(w http.ResponseWriter, r *http.Request, registry *Registry, db 
 					go func() {
 						ac.SendJSON(Message{Type: "cmd", ID: "auto_update", Action: "agent_update"})
 					}()
-				}
+					}
 			}
 
 			if registry.onHello != nil {

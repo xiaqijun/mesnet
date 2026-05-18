@@ -21,13 +21,18 @@ type Agent struct {
 	cfg    Config
 	ws     *WSClient
 	peers  *PeerManager
-	tun     *TUNDevice
-	router  *PacketRouter
+	tun    *TUNDevice
+	router *PacketRouter
+
+	keyPair  *KeyPair                    // Curve25519 static keypair
+	channels map[uint]*SecureChannel     // active secure channels, keyed by nodeID
+	peerKeys map[uint][]byte             // known peer public keys, keyed by nodeID
+
 	peerPort int
-	crypto *Crypto
-	routes *RouteManager
-	stats  *StatsCollector
-	probe  *Probe
+	crypto   *Crypto
+	routes   *RouteManager
+	stats    *StatsCollector
+	probe    *Probe
 
 	handler *Handler
 
@@ -46,10 +51,18 @@ func New(name, serverURL, listenAddr string, backbone bool) *Agent {
 		Token:      token,
 	}
 
+	kp, err := GenerateKeyPair()
+	if err != nil {
+		log.Printf("WARNING: keypair generation failed: %v", err)
+	}
+
 	a := &Agent{
-		cfg:   cfg,
-		quit:  make(chan struct{}),
-		peers: NewPeerManager(listenAddr, backbone),
+		cfg:      cfg,
+		quit:     make(chan struct{}),
+		peers:    NewPeerManager(listenAddr, backbone),
+		keyPair:  kp,
+		channels: make(map[uint]*SecureChannel),
+		peerKeys: make(map[uint][]byte),
 	}
 
 	a.handler = NewHandler(a)
@@ -70,6 +83,7 @@ func (a *Agent) Start() error {
 			a.peerPort = port
 			log.Printf("peer listen failed (non-fatal): %v", err)
 		} else if port > 0 {
+			a.peerPort = port
 			log.Printf("backbone node: listening on :%d", port)
 		}
 	} else {
@@ -99,8 +113,13 @@ func (a *Agent) Start() error {
 		}
 	})
 
+	// Handle incoming handshake frames at peer level
+	a.peers.SetOnHandshake(func(nodeID uint, frame []byte) ([]byte, error) {
+		return a.acceptHandshake(nodeID, frame)
+	})
+
 	// Connect to control plane
-	a.ws = NewWSClient(a.cfg.ServerURL, a.handler, a.peerPort)
+	a.ws = NewWSClient(a.cfg.ServerURL, a.handler, a.peerPort, a.PublicKeyHex())
 	go a.ws.Connect()
 
 	// Start stats collector
@@ -126,6 +145,45 @@ func (a *Agent) Stop() {
 	if a.tun != nil {
 		a.tun.Destroy()
 	}
+	// Wipe secure channels
+	for _, ch := range a.channels {
+		ch.Wipe()
+	}
+}
+
+// PublicKeyHex returns the agent's static Curve25519 public key as hex.
+func (a *Agent) PublicKeyHex() string {
+	if a.keyPair == nil {
+		return ""
+	}
+	return hexEncode(a.keyPair.PublicKey)
+}
+
+// acceptHandshake processes an incoming Noise handshake from a peer.
+func (a *Agent) acceptHandshake(nodeID uint, frame []byte) ([]byte, error) {
+	hdr, payload, err := DecodeFrameHeader(frame)
+	if err != nil || hdr.Flags&FlagHandshake == 0 {
+		return nil, err
+	}
+
+	peerPub, ok := a.peerKeys[nodeID]
+	if !ok {
+		log.Printf("handshake: no public key for peer %d", nodeID)
+		return nil, ErrHandshakeFailed
+	}
+
+	ch := NewSecureChannel(a.keyPair, peerPub)
+	response, err := ch.AcceptHandshake(payload)
+	if err != nil {
+		log.Printf("handshake: accept failed for peer %d: %v", nodeID, err)
+		return nil, err
+	}
+
+	a.mu.Lock()
+	a.channels[nodeID] = ch
+	a.mu.Unlock()
+	log.Printf("handshake: accepted from peer %d", nodeID)
+	return response, nil
 }
 
 func (a *Agent) HandleCommand(action string, args json.RawMessage) (any, error) {
@@ -162,9 +220,21 @@ func (a *Agent) HandleCommand(action string, args json.RawMessage) (any, error) 
 			NodeID    uint   `json:"node_id"`
 			PeerAddr  string `json:"peer_addr"`
 			PeerToken string `json:"peer_token"`
+			PublicKey string `json:"public_key"`
 			TunnelID  uint   `json:"tunnel_id"`
 		}
 		json.Unmarshal(args, &params)
+
+		// Store peer public key for handshake
+		if params.PublicKey != "" {
+			pk := hexDecode(params.PublicKey)
+			if len(pk) == 32 {
+				a.mu.Lock()
+				a.peerKeys[params.NodeID] = pk
+				a.mu.Unlock()
+			}
+		}
+
 		return nil, a.peers.Connect(params.NodeID, params.PeerAddr, params.PeerToken)
 
 	case "peer_disconnect":
@@ -173,6 +243,12 @@ func (a *Agent) HandleCommand(action string, args json.RawMessage) (any, error) 
 		}
 		json.Unmarshal(args, &params)
 		a.peers.Disconnect(params.PeerID)
+		a.mu.Lock()
+		if ch, ok := a.channels[params.PeerID]; ok {
+			ch.Wipe()
+			delete(a.channels, params.PeerID)
+		}
+		a.mu.Unlock()
 		return nil, nil
 
 	case "subnet_detect":
@@ -262,4 +338,39 @@ func extractToken(url string) string {
 
 func (a *Agent) OnStats(fn func(string, uint64, uint64)) {
 	a.stats.onReport = fn
+}
+
+// hexEncode encodes bytes to a hex string.
+func hexEncode(b []byte) string {
+	const hex = "0123456789abcdef"
+	r := make([]byte, len(b)*2)
+	for i, v := range b {
+		r[i*2] = hex[v>>4]
+		r[i*2+1] = hex[v&0xf]
+	}
+	return string(r)
+}
+
+// hexDecode decodes a hex string to bytes.
+func hexDecode(s string) []byte {
+	if len(s)%2 != 0 {
+		return nil
+	}
+	b := make([]byte, len(s)/2)
+	for i := 0; i < len(s); i += 2 {
+		b[i/2] = (hexDigit(s[i]) << 4) | hexDigit(s[i+1])
+	}
+	return b
+}
+
+func hexDigit(c byte) byte {
+	switch {
+	case c >= '0' && c <= '9':
+		return c - '0'
+	case c >= 'a' && c <= 'f':
+		return c - 'a' + 10
+	case c >= 'A' && c <= 'F':
+		return c - 'A' + 10
+	}
+	return 0
 }

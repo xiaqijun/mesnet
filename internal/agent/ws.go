@@ -16,15 +16,17 @@ type WSClient struct {
 	handler   *Handler
 	conn      *websocket.Conn
 	peerPort  int
+	publicKey string // hex-encoded Curve25519 static public key
 	mu        sync.Mutex
 	closed    bool
 }
 
-func NewWSClient(url string, handler *Handler, peerPort int) *WSClient {
+func NewWSClient(url string, handler *Handler, peerPort int, publicKey string) *WSClient {
 	return &WSClient{
-		url:      url,
-		handler:  handler,
-		peerPort: peerPort,
+		url:       url,
+		handler:   handler,
+		peerPort:  peerPort,
+		publicKey: publicKey,
 	}
 }
 
@@ -56,6 +58,7 @@ func (c *WSClient) Connect() {
 			"name":        "agent",
 			"version":     version.Current,
 			"listen_port": c.peerPort,
+			"public_key":  c.publicKey,
 		})
 
 		c.readLoop(conn)
