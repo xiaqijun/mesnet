@@ -40,7 +40,7 @@ func (p *Probe) probeAll() {
 		start := time.Now()
 
 		// Send a tiny binary probe frame
-		frame := EncodeFrame(nodeID, []byte{0x00})
+		frame := EncodeFrame(FlagProbe, 0, uint64(nodeID), []byte{0x00})
 		if err := p.peers.SendRaw(nodeID, frame); err != nil {
 			continue
 		}

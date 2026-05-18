@@ -17,21 +17,24 @@ func NewTunnel(agent *Agent) *Tunnel {
 	}
 }
 
-// SendEncrypted encrypts raw IP packet and sends it to a peer.
+// SendEncrypted encrypts raw IP packet and sends it to a peer using the new frame protocol.
 func (t *Tunnel) SendEncrypted(nodeID uint, packet []byte) error {
 	encrypted, err := t.crypto.Encrypt(packet)
 	if err != nil {
 		return err
 	}
-	frame := EncodeFrame(nodeID, encrypted)
+	frame := EncodeFrame(FlagData, 0, uint64(nodeID), encrypted)
 	return t.agent.peers.SendRaw(nodeID, frame)
 }
 
 // ReceiveEncrypted receives encrypted data from a peer and decrypts it.
 func (t *Tunnel) ReceiveEncrypted(nodeID uint, frame []byte) ([]byte, error) {
-	_, _, payload, err := DecodeFrame(frame)
+	hdr, payload, err := DecodeFrameHeader(frame)
 	if err != nil {
 		return nil, err
+	}
+	if hdr.Flags&FlagData == 0 && hdr.Flags&FlagProbe == 0 {
+		return nil, nil // not data, skip
 	}
 	plaintext, err := t.crypto.Decrypt(payload)
 	if err != nil {
