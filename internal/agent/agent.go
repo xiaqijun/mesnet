@@ -270,19 +270,41 @@ func (a *Agent) HandleCommand(action string, args json.RawMessage) (any, error) 
 		a.peers.SendRaw(params.NodeID, initFrame)
 		return nil, nil
 
-	case "peer_disconnect":
-		var params struct {
-			PeerID uint `json:"peer_id"`
-		}
-		json.Unmarshal(args, &params)
-		a.peers.Disconnect(params.PeerID)
-		a.mu.Lock()
-		if ch, ok := a.channels[params.PeerID]; ok {
-			ch.Wipe()
-			delete(a.channels, params.PeerID)
-		}
-		a.mu.Unlock()
-		return nil, nil
+		case "peer_accept":
+			var params struct {
+				NodeID    uint   `json:"node_id"`
+				Token     string `json:"token"`
+				PublicKey string `json:"public_key"`
+			}
+			json.Unmarshal(args, &params)
+
+			// Store peer public key for incoming handshake
+			if params.PublicKey != "" {
+				pk := hexDecode(params.PublicKey)
+				if len(pk) == 32 {
+					a.mu.Lock()
+					a.peerKeys[params.NodeID] = pk
+					a.mu.Unlock()
+				}
+			}
+
+			// Register expected incoming connection (peer dials us with this token)
+			a.peers.ExpectConnection(params.Token, params.NodeID)
+			return nil, nil
+
+		case "peer_disconnect":
+			var params struct {
+				PeerID uint `json:"peer_id"`
+			}
+			json.Unmarshal(args, &params)
+			a.peers.Disconnect(params.PeerID)
+			a.mu.Lock()
+			if ch, ok := a.channels[params.PeerID]; ok {
+				ch.Wipe()
+				delete(a.channels, params.PeerID)
+			}
+			a.mu.Unlock()
+			return nil, nil
 
 	case "subnet_detect":
 		subnets, err := a.routes.DetectSubnets()

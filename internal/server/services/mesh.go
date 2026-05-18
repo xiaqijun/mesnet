@@ -160,6 +160,11 @@ func createLeafTunnel(db *gorm.DB, registry *ws.Registry, leaf, backbone *models
 	db.Create(&tunnel)
 
 	go func() {
+		// Tell backbone to expect leaf's incoming connection and store leaf's public key
+		registry.SendCmd(backbone.ID, "peer_accept", map[string]any{
+			"node_id": leaf.ID, "token": backbone.AgentToken, "public_key": leaf.PublicKey,
+		}, 5*time.Second)
+
 		_, err := registry.SendCmd(leaf.ID, "peer_connect", map[string]any{
 			"node_id": backbone.ID, "peer_addr": backbone.ListenAddr, "peer_token": backbone.AgentToken, "tunnel_id": tunnel.ID, "public_key": backbone.PublicKey,
 		}, 10*time.Second)
