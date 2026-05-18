@@ -33,6 +33,10 @@ func (t *TUNDevice) Create(ip string) error {
 	if t.up {
 		return nil // already created
 	}
+
+	// Clean up any leftover TUN interface from previous run
+	exec.Command("ip", "link", "del", "dev", t.name).Run()
+
 	fd, err := os.OpenFile("/dev/net/tun", os.O_RDWR, 0)
 	if err != nil {
 		return err

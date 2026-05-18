@@ -87,11 +87,13 @@ func (s *StatsCollector) report() {
 	}
 
 	msg := map[string]any{
-		"type":    "stats",
-		"tunnels": tunnels,
-		"system": map[string]any{
-			"cpu_pct": readCPU(),
-			"mem_mb":  readMemMB(),
+		"type": "stats",
+		"data": map[string]any{
+			"tunnels": tunnels,
+			"system": map[string]any{
+				"cpu_pct": readCPU(),
+				"mem_mb":  readMemMB(),
+			},
 		},
 	}
 
