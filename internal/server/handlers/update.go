@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -33,6 +34,16 @@ func GetAgentVersions(db *gorm.DB, registry *ws.Registry) gin.HandlerFunc {
 			Latest  bool   `json:"latest"`
 		}
 
+		// Fetch latest available version from release server
+		latestVersion := version.Current
+		if resp, err := http.Get(fmt.Sprintf("%s/version.txt", ReleaseBase)); err == nil && resp.StatusCode == 200 {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 64))
+			resp.Body.Close()
+			if v := strings.TrimSpace(string(body)); v != "" {
+				latestVersion = v
+			}
+		}
+
 		result := make([]versionInfo, 0, len(nodes))
 		for _, n := range nodes {
 			result = append(result, versionInfo{
@@ -40,13 +51,14 @@ func GetAgentVersions(db *gorm.DB, registry *ws.Registry) gin.HandlerFunc {
 				Name:    n.Name,
 				Version: n.AgentVersion,
 				Online:  registry.IsOnline(n.ID),
-				Latest:  n.AgentVersion == "" || n.AgentVersion == version.Current,
+				Latest:  n.AgentVersion == "" || n.AgentVersion == latestVersion,
 			})
 		}
 
 		c.JSON(http.StatusOK, gin.H{
 			"current_version": version.Current,
 			"server_version":  version.Current,
+			"latest_version":  latestVersion,
 			"nodes":           result,
 		})
 	}

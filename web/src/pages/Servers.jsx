@@ -11,7 +11,7 @@ export default function Servers() {
   const [sshResult, setSshResult] = useState(null)
   const [sshTest, setSshTest] = useState(null)
   const [latestVer, setLatestVer] = useState('')
-  useEffect(() => { fetch('/api/agents/versions').then(r => r.json()).then(d => setLatestVer(d.server_version || '')) }, [])
+  useEffect(() => { fetch('/api/agents/versions').then(r => r.json()).then(d => setLatestVer(d.latest_version || d.server_version || '')) }, [])
   const [showAddCloud, setShowAddCloud] = useState(false)
   const [showAddLeaf, setShowAddLeaf] = useState(false)
   const [selectedBackbone, setSelectedBackbone] = useState(null)
@@ -134,8 +134,7 @@ export default function Servers() {
     alert(`已触发 ${data.updated} 个 Agent 更新`)
   }
 
-  const handleServerUpdate = async (ver) => {
-    if (ver === latestVer) { alert('控制端已是最新'); return }
+  const handleServerUpdate = async () => {
     if (!confirm('确定更新控制端服务器？服务会短暂中断。')) return
     await fetch('/api/server/update', { method: 'POST' })
     alert('服务端更新中，稍后刷新页面...')
@@ -154,7 +153,7 @@ export default function Servers() {
           <button onClick={handleUpdateAll} className="px-3 py-1.5 text-xs bg-amber-600/20 text-amber-400 rounded hover:bg-amber-600/40 transition-colors">
             更新全部 Agent
           </button>
-          <button onClick={() => handleServerUpdate(latestVer)} className="px-3 py-1.5 text-xs bg-purple-600/20 text-purple-400 rounded hover:bg-purple-600/40 transition-colors">
+          <button onClick={handleServerUpdate} className="px-3 py-1.5 text-xs bg-purple-600/20 text-purple-400 rounded hover:bg-purple-600/40 transition-colors">
             更新控制端
           </button>
           <button onClick={() => setShowAddCloud(!showAddCloud)} className="px-3 py-1.5 text-xs bg-emerald-600 hover:bg-emerald-500 text-white rounded transition-colors">
