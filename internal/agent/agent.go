@@ -22,6 +22,7 @@ type Agent struct {
 	ws     *WSClient
 	peers  *PeerManager
 	tun     *TUNDevice
+	router  *PacketRouter
 	peerPort int
 	crypto *Crypto
 	routes *RouteManager
@@ -55,6 +56,7 @@ func New(name, serverURL, listenAddr string, backbone bool) *Agent {
 	a.crypto = NewCrypto()
 	a.tun = NewTUNDevice()
 	a.routes = NewRouteManager()
+	a.router = NewPacketRouter(a.peers, a.routes)
 	a.stats = NewStatsCollector(a)
 	a.probe = NewProbe(a.peers)
 
@@ -77,7 +79,7 @@ func (a *Agent) Start() error {
 	// Handle incoming peer data: decrypt, forward to TUN, or relay
 	a.peers.SetOnRecv(func(nodeID uint, frame []byte) {
 		tun := NewTunnel(a)
-		plaintext, err := tun.ReceiveEncrypted(nodeID, frame)
+		plaintext, err := tun.ReceiveEncrypted(frame)
 		if err != nil {
 			return
 		}
@@ -119,6 +121,7 @@ func (a *Agent) Stop() {
 	if a.ws != nil {
 		a.ws.Close()
 	}
+	a.router.Stop()
 	a.peers.Close()
 	if a.tun != nil {
 		a.tun.Destroy()

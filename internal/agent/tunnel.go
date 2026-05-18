@@ -17,18 +17,19 @@ func NewTunnel(agent *Agent) *Tunnel {
 	}
 }
 
-// SendEncrypted encrypts raw IP packet and sends it to a peer using the new frame protocol.
+// SendEncrypted encrypts raw IP packet and sends it to a peer via the
+// async PacketRouter (non-blocking, per-peer buffered queue).
 func (t *Tunnel) SendEncrypted(nodeID uint, packet []byte) error {
 	encrypted, err := t.crypto.Encrypt(packet)
 	if err != nil {
 		return err
 	}
 	frame := EncodeFrame(FlagData, 0, uint64(nodeID), encrypted)
-	return t.agent.peers.SendRaw(nodeID, frame)
+	return t.agent.router.SendTo(nodeID, frame)
 }
 
 // ReceiveEncrypted receives encrypted data from a peer and decrypts it.
-func (t *Tunnel) ReceiveEncrypted(nodeID uint, frame []byte) ([]byte, error) {
+func (t *Tunnel) ReceiveEncrypted(frame []byte) ([]byte, error) {
 	hdr, payload, err := DecodeFrameHeader(frame)
 	if err != nil {
 		return nil, err
@@ -38,15 +39,14 @@ func (t *Tunnel) ReceiveEncrypted(nodeID uint, frame []byte) ([]byte, error) {
 	}
 	plaintext, err := t.crypto.Decrypt(payload)
 	if err != nil {
-		log.Printf("tunnel decrypt failed from node %d: %v", nodeID, err)
+		log.Printf("tunnel decrypt failed: %v", err)
 		return nil, err
 	}
 	return plaintext, nil
 }
 
 // Run starts the packet forwarding loop from TUN to peers.
-// Supports multi-hop relay: if the next-hop differs from the destination node,
-// the packet is relayed through the next-hop peer.
+// Uses PacketRouter for async, non-blocking sends.
 func (t *Tunnel) Run() {
 	go func() {
 		for {
@@ -56,13 +56,11 @@ func (t *Tunnel) Run() {
 			}
 
 			dstIP := extractDstIP(packet)
-			_, nextHop := t.agent.routes.Lookup(dstIP)
-			if nextHop == 0 {
-				continue // no route
-			}
-
-			if err := t.SendEncrypted(nextHop, packet); err != nil {
-				log.Printf("tunnel send to node %d failed: %v", nextHop, err)
+			if err := t.agent.router.Route(dstIP, packet); err != nil {
+				if err != ErrNoRoute {
+					log.Printf("tunnel route to %s failed: %v", dstIP, err)
+				}
+				continue
 			}
 		}
 	}()
