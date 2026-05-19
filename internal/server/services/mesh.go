@@ -17,6 +17,7 @@ import (
 )
 
 var autoMeshMu sync.Mutex
+var autoMeshRunning = make(map[uint]bool)
 const maxMeshPeers = 3
 
 // Weighted scoring constants for backbone selection
@@ -55,7 +56,17 @@ func scoreBackbone(cpu int, memoryMB int, latencyMs int64) float64 {
 
 func AutoMesh(db *gorm.DB, registry *ws.Registry, nodeID uint) {
 	autoMeshMu.Lock()
-	defer autoMeshMu.Unlock()
+	if autoMeshRunning[nodeID] {
+		autoMeshMu.Unlock()
+		return
+	}
+	autoMeshRunning[nodeID] = true
+	autoMeshMu.Unlock()
+	defer func() {
+		autoMeshMu.Lock()
+		delete(autoMeshRunning, nodeID)
+		autoMeshMu.Unlock()
+	}()
 	var node models.Node
 	if err := db.First(&node, nodeID).Error; err != nil {
 		return
