@@ -77,19 +77,19 @@ func AutoMesh(db *gorm.DB, registry *ws.Registry, nodeID uint) {
 			createBackboneMesh(db, registry, &node, &peer)
 		}
 	} else {
-		// Skip if leaf already has an active tunnel (prevents duplicates on parallel AutoMesh)
+		// Check if leaf already has an active tunnel
 		var existingTunnel models.Tunnel
 		if db.Where(
 			"(left_node_id = ? OR right_node_id = ?) AND status = ?",
 			node.ID, node.ID, "up",
-		).First(&existingTunnel).Error == nil {
-			return
-		}
-		bestID := SelectBestBackbone(db, registry, node.ID, 0)
-		if bestID > 0 {
-			var best models.Node
-			if db.First(&best, bestID).Error == nil {
-				createLeafTunnel(db, registry, &node, &best)
+		).First(&existingTunnel).Error != nil {
+			// No active tunnel — create one
+			bestID := SelectBestBackbone(db, registry, node.ID, 0)
+			if bestID > 0 {
+				var best models.Node
+				if db.First(&best, bestID).Error == nil {
+					createLeafTunnel(db, registry, &node, &best)
+				}
 			}
 		}
 	}
