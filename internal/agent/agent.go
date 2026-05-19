@@ -142,12 +142,13 @@ func (a *Agent) Start() error {
 				log.Printf("handshake: completed with peer %d", nodeID)
 				return nil, nil
 			}
-			// Already established but peer is re-handshaking — reply with
-			// our ephemeral key so they can complete their side.
-			if ephPub := ch.GetEphemeralPublicKey(); ephPub != nil {
-				return EncodeFrame(FlagHandshake, 0, 0, ephPub), nil
-			}
-			return nil, nil
+			// Peer restarted with new ephemeral key — wipe old channel and re-handshake
+			ch.Wipe()
+			a.mu.Lock()
+			delete(a.channels, nodeID)
+			a.mu.Unlock()
+			log.Printf("handshake: peer %d reconnected, re-handshaking", nodeID)
+			// Fall through to new incoming handshake below
 		}
 
 		// New incoming handshake: we are the responder
