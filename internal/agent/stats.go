@@ -63,15 +63,27 @@ func (s *StatsCollector) report() {
 	tunnels := make(map[string]tunnelStatEntry)
 
 	s.mu.Lock()
-	for nodeID := range s.rx {
-		key := "tun-" + itoaUint(nodeID)
-		tunnels[key] = tunnelStatEntry{
-			RX: s.rx[nodeID],
-			TX: s.tx[nodeID],
+	// Collect all nodeIDs that have either RX or TX traffic in this window
+	allKeys := make(map[uint]bool, len(s.rx)+len(s.tx))
+	for k := range s.rx {
+		allKeys[k] = true
+	}
+	for k := range s.tx {
+		allKeys[k] = true
+	}
+
+	for nodeID := range allKeys {
+		rx := s.rx[nodeID]
+		tx := s.tx[nodeID]
+		if rx == 0 && tx == 0 {
+			delete(s.rx, nodeID)
+			delete(s.tx, nodeID)
+			continue
 		}
-		// Reset counters for delta reporting
-		s.rx[nodeID] = 0
-		s.tx[nodeID] = 0
+		key := "tun-" + itoaUint(nodeID)
+		tunnels[key] = tunnelStatEntry{RX: rx, TX: tx}
+		delete(s.rx, nodeID)
+		delete(s.tx, nodeID)
 	}
 	s.mu.Unlock()
 
