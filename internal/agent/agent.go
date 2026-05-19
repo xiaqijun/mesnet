@@ -5,6 +5,7 @@ import (
 	"log"
 	"net"
 	"sync"
+	"time"
 )
 
 // Config holds Agent configuration.
@@ -390,7 +391,35 @@ func (a *Agent) HandleCommand(action string, args json.RawMessage) (any, error) 
 				"rtt_ms":              rtt,
 			}, nil
 
-			case "subnet_detect":
+			case "backbone_probe":
+			var params struct {
+				Addrs []struct {
+					ID   uint   `json:"id"`
+					Addr string `json:"addr"`
+				} `json:"addrs"`
+			}
+			json.Unmarshal(args, &params)
+
+			type probeResult struct {
+				ID    uint   `json:"id"`
+				Addr  string `json:"addr"`
+				RTTMS int64  `json:"rtt_ms"`
+			}
+			var results []probeResult
+			for _, a := range params.Addrs {
+				start := time.Now()
+				conn, err := net.DialTimeout("tcp", a.Addr, 3*time.Second)
+				rtt := time.Since(start).Milliseconds()
+				if err != nil {
+					rtt = -1
+				} else {
+					conn.Close()
+				}
+				results = append(results, probeResult{ID: a.ID, Addr: a.Addr, RTTMS: rtt})
+			}
+			return map[string]any{"results": results}, nil
+
+		case "subnet_detect":
 		subnets, err := a.routes.DetectSubnets()
 		return map[string]any{"subnets": subnets}, err
 

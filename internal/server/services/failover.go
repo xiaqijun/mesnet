@@ -3,7 +3,7 @@ package services
 import (
 	"encoding/json"
 	"log"
-	"net"
+	"sort"
 	"time"
 
 	"github.com/mesnet/mesnet/internal/server/models"
@@ -77,7 +77,7 @@ func CheckAndFailover(db *gorm.DB, registry *ws.Registry) {
 }
 
 func switchBackbone(db *gorm.DB, registry *ws.Registry, leaf *models.Node, oldBB uint) {
-	newBB := SelectBestBackbone(db, registry, oldBB)
+	newBB := SelectBestBackbone(db, registry, leaf.ID, oldBB)
 	if newBB == 0 {
 		log.Printf("failover: no alternative backbone for leaf %d", leaf.ID)
 		return
@@ -113,37 +113,52 @@ func switchBackbone(db *gorm.DB, registry *ws.Registry, leaf *models.Node, oldBB
 	log.Printf("failover: leaf %d switched backbone %d -> %d", leaf.ID, oldBB, newBB)
 }
 
-// SelectBestBackbone picks the backbone with the lowest TCP latency.
-// excludeID is a backbone to skip.
-func SelectBestBackbone(db *gorm.DB, registry *ws.Registry, excludeID uint) uint {
+// SelectBestBackbone asks the leaf agent to probe all backbones and
+// returns the one with the lowest TCP latency. If leafID is 0 (leaf not yet online),
+// falls back to server-side TCP probe.
+func SelectBestBackbone(db *gorm.DB, registry *ws.Registry, leafID uint, excludeID uint) uint {
 	var backbones []models.Node
 	db.Where("backbone = ? AND id != ?", true, excludeID).Find(&backbones)
 
-	var bestID uint
-	var bestLatency time.Duration = 999 * time.Second
-
+	type probeAddr struct {
+		ID   uint   `json:"id"`
+		Addr string `json:"addr"`
+	}
+	var addrs []probeAddr
 	for _, bb := range backbones {
-		if !registry.IsOnline(bb.ID) || bb.ListenAddr == "" {
-			continue
+		if registry.IsOnline(bb.ID) && bb.ListenAddr != "" {
+			addrs = append(addrs, probeAddr{ID: bb.ID, Addr: bb.ListenAddr})
 		}
-		// TCP dial to measure latency (2s timeout)
-		start := time.Now()
-		conn, err := net.DialTimeout("tcp", bb.ListenAddr, 2*time.Second)
-		if err != nil {
-			continue
-		}
-		rtt := time.Since(start)
-		conn.Close()
-
-		if rtt < bestLatency {
-			bestLatency = rtt
-			bestID = bb.ID
-		}
-		log.Printf("backbone %s (%s) latency: %dms", bb.Name, bb.ListenAddr, rtt.Milliseconds())
+	}
+	if len(addrs) == 0 {
+		return 0
 	}
 
-	if bestID > 0 {
-		log.Printf("selected backbone %d (latency: %dms)", bestID, bestLatency.Milliseconds())
+	// If leaf is online, ask it to probe. Otherwise fall back to server-side.
+	if leafID > 0 && registry.IsOnline(leafID) {
+		result, err := registry.SendCmd(leafID, "backbone_probe",
+			map[string]any{"addrs": addrs}, 8*time.Second)
+		if err == nil && result.Data != nil {
+			var data struct {
+				Results []struct {
+					ID    uint   `json:"id"`
+					Addr  string `json:"addr"`
+					RTTMS int64  `json:"rtt_ms"`
+				} `json:"results"`
+			}
+			json.Unmarshal(result.Data, &data)
+			sort.Slice(data.Results, func(i, j int) bool {
+				return data.Results[i].RTTMS >= 0 && data.Results[i].RTTMS < data.Results[j].RTTMS
+			})
+			for _, r := range data.Results {
+				if r.RTTMS >= 0 {
+					log.Printf("backbone %d latency from leaf %d: %dms", r.ID, leafID, r.RTTMS)
+					return r.ID
+				}
+			}
+		}
 	}
-	return bestID
+
+	// Fallback: return first available backbone
+	return addrs[0].ID
 }

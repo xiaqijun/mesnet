@@ -140,7 +140,7 @@ func AddLeafNode(db *gorm.DB, registry *ws.Registry) gin.HandlerFunc {
 
 		// Auto-select backbone if not specified
 		if body.BackboneID == 0 {
-			body.BackboneID = services.SelectBestBackbone(db, registry, 0)
+			body.BackboneID = services.SelectBestBackbone(db, registry, 0, 0)
 			if body.BackboneID == 0 {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "no online backbone available"})
 				return
