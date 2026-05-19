@@ -58,7 +58,7 @@ export default function Layout() {
           >
             退出登录
           </button>
-          {ver && <div className="text-[10px] text-gray-600">{ver}</div>}
+          {ver && <div className="text-xs text-gray-500 font-mono">{ver}</div>}
         </div>
       </aside>
       <main className="flex-1 overflow-auto p-6">

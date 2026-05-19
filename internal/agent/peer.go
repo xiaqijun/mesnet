@@ -120,6 +120,10 @@ func (pm *PeerManager) handleIncoming(w http.ResponseWriter, r *http.Request) {
 		nodeID = 0 // fallback: unknown peer
 		log.Printf("incoming peer: unknown token %s..., using nodeID=0", token[:n])
 	}
+	// Close old connection if exists (prevents dual readLoops for same nodeID)
+	if old, ok := pm.peers[nodeID]; ok && old.Conn != conn {
+		old.Conn.Close()
+	}
 	pm.peers[nodeID] = &Peer{NodeID: nodeID, Conn: conn, LastSeen: time.Now()}
 	pm.mu.Unlock()
 	// Start reader for incoming data + handshake
@@ -134,7 +138,12 @@ func (pm *PeerManager) Connect(nodeID uint, addr, token string) error {
 	if err != nil {
 		return err
 	}
+
 	pm.mu.Lock()
+	// Close old connection if exists (prevents dual readLoops for same nodeID)
+	if old, ok := pm.peers[nodeID]; ok && old.Conn != conn {
+		old.Conn.Close()
+	}
 	pm.peers[nodeID] = &Peer{NodeID: nodeID, Conn: conn, LastSeen: time.Now()}
 	pm.mu.Unlock()
 	log.Printf("connected to peer %d at %s", nodeID, addr)

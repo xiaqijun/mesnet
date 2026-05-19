@@ -2,7 +2,7 @@
 
 基于 Agent 的隐蔽 Mesh 网络管理系统。
 
-**当前版本**: v1.0.80 | **状态**: 四节点（BG-1 / HK-1 / NJ-1 / GZ-1）全部在线，加密信道互通
+**当前版本**: v1.0.90 | **状态**: 四节点（BG-1 / HK-1 / NJ-1 / GZ-1）全部在线，加密信道互通
 
 ## 技术栈
 
@@ -17,17 +17,18 @@
 ## 架构
 
 ```
-Agent ──WSS──> Control Plane (:8080)     ← 管理通道
+Agent ──WSS──> Control Plane (:8080)     ← 管理通道（认证后基于 JWT）
 Agent ──WSS──> Agent (:443)              ← 数据通道（加密隧道）
 ```
 
-- **控制端** 负责管理编排（REST API + WSS 管理通道），**不转发数据**
+- **控制端** 负责管理编排（REST API + WSS 管理通道），**不转发数据**。API 由 JWT Bearer token 保护，前端登录后 token 存 `localStorage`
 - **Agent 之间 WSS 直连**传输加密隧道数据
 - **两种角色**:
   - **骨干节点** (`--backbone=true`): 监听 :443 接受连接，骨干间全互联
   - **叶子节点** (`--backbone=false`): 只向外拨号连接一个骨干，通过骨干中继到其他叶子
 - **数据中继**: 叶子 → 骨干 → 骨干 → 目标叶子，通过 BFS 计算 next-hop
 - **协议自定义帧格式**: Magic "MESH" (0x4D45354E) + 16 字节 header + 负载
+- **安全信道初始化**: Init -> HandshakeSent -> Established -> Wiped
 
 ## 关键技术细节
 
@@ -41,7 +42,9 @@ Agent ──WSS──> Agent (:443)              ← 数据通道（加密隧道
 - **心跳**: Agent 间 500ms WebSocket ping，2s read deadline
 - **TCP keepalive**: 1s 周期，3 次探测
 - **服务端扫描**: 5s 间隔 `CheckAndFailover`，检测断线或 RTT > 200ms（连续 3 次）
-- **切换**: `SwitchBackbone` 调用 agent 的 `backbone_probe` 探测所有骨干选最优
+- **骨干选择**: 叶子节点故障时执行 `SwitchBackbone`，用 `backbone_probe` 探测所有骨干，按**加权 RTT + CPU + 内存**排序选最优
+- **切换**: 叶子预连接所有骨干，切换时 `SwitchBackbone` 更新路由、自动清理旧隧道记录
+- **AutoMesh 锁**: 每个节点独立的 `AutoMeshLock` 互斥锁，防止重复编排
 - **重连处理**: `onReconnect` 重置 router send queue，`onDisconnect` 通知控制面
 
 ### onRecv 数据包处理顺序（关键！）
@@ -76,10 +79,12 @@ MeshNet/
 │   ├── server/          # 控制端实现
 │   │   ├── config/      # 配置
 │   │   ├── database/    # 数据库
-│   │   ├── models/      # 数据模型
-│   │   ├── handlers/    # API 处理器
+│   │   ├── middleware/  # JWT 认证中间件
+│   │   ├── models/      # 数据模型（node, tunnel, traffic, user, audit）
+│   │   ├── handlers/    # API 处理器（含 auth 登录注册）
 │   │   ├── ws/          # WebSocket 管理面
-│   │   └── services/    # 业务逻辑（mesh, failover, stats）
+│   │   ├── logwatch/    # 日志审计
+│   │   └── services/    # 业务逻辑（mesh, failover, stats, ssh, collector）
 │   ├── agent/           # Agent 实现
 │   │   ├── agent.go     # 生命周期 + 命令处理
 │   │   ├── peer.go      # 对等连接 WebSocket 管理 + 心跳
@@ -93,8 +98,13 @@ MeshNet/
 │   │   ├── route_linux.go # 内核路由
 │   │   ├── router.go    # PacketRouter 发送队列
 │   │   ├── ws.go        # 管理 WebSocket
-│   │   ├── stats.go     # 统计收集
-│   │   └── probe.go     # 延迟探测
+│   │   ├── handler.go  # 命令处理（mesh, update, reboot）
+│   │   ├── packet.go   # 数据包编解码
+│   │   ├── stats.go    # 统计收集
+│   │   ├── stats_linux.go # Linux 流量统计
+│   │   ├── stats_other.go # 跨平台流量统计
+│   │   ├── probe.go    # 延迟探测
+│   │   └── update.go   # 自动更新
 │   └── proto/           # 协议定义
 ├── web/                 # React 前端
 ├── deploy/              # 部署文件
@@ -103,24 +113,46 @@ MeshNet/
 
 ## 关键命令
 
+### 本地开发
+
+```bash
+# 前端开发（Vite :5173，自动代理 /api -> :8080，/ws -> ws://:8080）
+cd /e/github/MeshNet/web && npm run dev
+
+# 控制端（需先启动）
+cd /e/github/MeshNet && go run ./cmd/server -config config.yaml
+
+# 前端预览生产构建
+cd /e/github/MeshNet/web && npm run preview
+```
+
 ### 构建
+
 ```bash
 # Agent (Linux amd64)
 cd /e/github/MeshNet && go build -ldflags "-X github.com/mesnet/mesnet/internal/version.Current=1.0.78" -o mesnet-agent-linux-amd64 ./cmd/agent
 
-# 控制端
+# 控制端（Linux, CGO 需要 SQLite 支持）
 cd /e/github/MeshNet && CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -ldflags "-X github.com/mesnet/mesnet/internal/version.Current=1.0.78" -o mesnet-server ./cmd/server
 
 # 前端
 cd /e/github/MeshNet/web && npm run build && tar czf mesnet-web.tar.gz -C dist .
 ```
 
+### Docker Compose 部署
+
+```bash
+cd /e/github/MeshNet/deploy && docker compose up -d
+```
+
 ### 标签+推送
+
 ```bash
 git tag v1.0.80 && git push origin v1.0.80  # 触发 CI 构建+Release
 ```
 
 ### 全量部署（版本升级）
+
 ```bash
 curl -fsSL https://meshnet.kisectool.com/mesnet-server -o /usr/local/bin/mesnet-server
 curl -fsSL https://meshnet.kisectool.com/mesnet-agent-linux-amd64 -o /usr/local/bin/mesnet-agent
@@ -130,12 +162,52 @@ systemctl restart mesnet-agent
 ```
 
 ### Agent 参数
+
 ```bash
---server wss://HOST/ws/agent/TOKEN   # 控制端地址
---listen :443                         # 监听端口（骨干节点）
+--server wss://HOST/ws/agent/TOKEN   # 控制端地址（token 从控制端 web 界面生成）
+--listen :443                         # 监听端口（骨干节点，用于接收其他节点连接）
 --name BG-1                           # 节点名称
 --backbone=true/false                 # 是否为骨干节点
 ```
+
+## 配置结构
+
+```yaml
+server:
+  host: "0.0.0.0"      # 监听地址
+  port: 8080            # API + WebSocket 管理端口
+  ws_port: 443          # Agent 数据通道端口
+  tls_cert: ""           # TLS 证书路径（留空 = 无 TLS）
+  tls_key: ""
+
+database:
+  driver: "sqlite"       # sqlite | postgres | mysql
+  dsn: "mesnet.db"       # SQLite 文件路径，或 PG/MySQL DSN
+
+agent:
+  secret_key: "change-me-in-production"   # Agent 注册密钥
+  virtual_network: "10.100.0.0/16"        # 虚拟子网
+  heartbeat_interval: 30                  # Agent 心跳间隔（秒）
+  binary_download_url: "https://..."      # Agent 二进制下载地址
+```
+
+## 前端页面结构
+
+| 路由 | 页面 | 功能 |
+|------|------|------|
+| `/login` | Login | 管理员登录 |
+| `/` | Dashboard | 概览仪表盘（节点数/隧道/流量统计） |
+| `/nodes` | Nodes | 节点列表 |
+| `/nodes/:id` | NodeDetail | 节点详情 + 线路状态 |
+| `/tunnels` | Tunnels | 隧道列表 |
+| `/tunnels/:id` | TunnelDetail | 隧道详情 |
+| `/topology` | Topology | 拓扑图（D3 可视化） |
+| `/monitor` | Monitor | 实时监控（WebSocket 推送） |
+| `/servers` | Servers | SSH 托管服务器管理 |
+| `/audit` | Audit | 审计日志 |
+| `/change-password` | ChangePassword | 修改密码 |
+
+前端通过 `src/api/index.js` 调用 REST API，通过 `src/hooks/useWebSocket.js` 连接 `/ws/...` 接收实时推送。
 
 ## 开发守则
 

@@ -88,11 +88,13 @@ func (t *Tunnel) Run() {
 			}
 
 			dstIP := extractDstIP(packet)
-			_, nextHop := t.agent.routes.Lookup(dstIP)
+			nodeID, nextHop := t.agent.routes.Lookup(dstIP)
 			if nextHop == 0 {
+				log.Printf("tunnel: no route for dst=%s nodeID=%d", dstIP, nodeID)
 				continue
 			}
 
+			log.Printf("tunnel: route %s -> node %d (nextHop %d)", dstIP, nodeID, nextHop)
 			if err := t.SendEncrypted(nextHop, packet); err != nil {
 				log.Printf("tunnel send to node %d failed: %v", nextHop, err)
 			}
