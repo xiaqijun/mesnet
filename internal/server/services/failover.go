@@ -139,9 +139,14 @@ func SwitchBackbone(db *gorm.DB, registry *ws.Registry, leaf *models.Node, oldBB
 
 	// Remove any other stale tunnels for this leaf
 	db.Model(&models.Tunnel{}).
-		Where("(left_node_id = ? OR right_node_id = ?) AND status = ? AND id != ?)",
+		Where("(left_node_id = ? OR right_node_id = ?) AND status = ? AND id != ?",
 			leaf.ID, leaf.ID, "up", newTunnel.ID).
 		Update("status", "down")
+
+		// Clean up old down tunnels for this leaf
+		db.Where("(left_node_id = ? OR right_node_id = ?) AND status = ?",
+			leaf.ID, leaf.ID, "down").
+			Delete(&models.Tunnel{})
 
 	log.Printf("failover: leaf %d switched backbone %d -> %d", leaf.ID, oldBB, newBB)
 }
