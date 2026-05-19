@@ -2,7 +2,7 @@
 
 基于 Agent 的隐蔽 Mesh 网络管理系统。
 
-**当前版本**: v1.0.79 | **状态**: 四节点（BG-1 / HK-1 / NJ-1 / GZ-1）全部在线，加密信道互通
+**当前版本**: v1.0.80 | **状态**: 四节点（BG-1 / HK-1 / NJ-1 / GZ-1）全部在线，加密信道互通
 
 ## 技术栈
 
@@ -117,7 +117,7 @@ cd /e/github/MeshNet/web && npm run build && tar czf mesnet-web.tar.gz -C dist .
 
 ### 标签+推送
 ```bash
-git tag v1.0.79 && git push origin v1.0.79  # 触发 CI 构建+Release
+git tag v1.0.80 && git push origin v1.0.80  # 触发 CI 构建+Release
 ```
 
 ### 全量部署（版本升级）

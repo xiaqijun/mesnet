@@ -53,6 +53,7 @@ func Migrate(db *gorm.DB) {
 		&models.Tunnel{},
 		&models.AuditLog{},
 		&models.TrafficSnapshot{},
+		&models.User{},
 	); err != nil {
 		log.Fatalf("migration failed: %v", err)
 	}

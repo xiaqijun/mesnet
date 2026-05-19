@@ -1,10 +1,23 @@
 const BASE = '/api'
 
+function getToken() {
+  return localStorage.getItem('mesnet_token')
+}
+
 async function req(url, opts = {}) {
-  const res = await fetch(BASE + url, {
-    headers: { 'Content-Type': 'application/json', ...opts.headers },
-    ...opts,
-  })
+  const headers = { 'Content-Type': 'application/json', ...opts.headers }
+  const token = getToken()
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+  const res = await fetch(BASE + url, { headers, ...opts })
+  if (res.status === 401) {
+    // Token expired or invalid — clear auth and redirect
+    localStorage.removeItem('mesnet_token')
+    localStorage.removeItem('mesnet_user')
+    window.location.href = '/login'
+    throw new Error('unauthorized')
+  }
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
   return res.json()
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/rand"
 	"flag"
 	"fmt"
 	"log"
@@ -13,6 +14,7 @@ import (
 	"github.com/mesnet/mesnet/internal/server/config"
 	"github.com/mesnet/mesnet/internal/server/database"
 	"github.com/mesnet/mesnet/internal/server/handlers"
+	"github.com/mesnet/mesnet/internal/server/middleware"
 	"github.com/mesnet/mesnet/internal/server/models"
 	"github.com/mesnet/mesnet/internal/server/services"
 	"github.com/mesnet/mesnet/internal/server/ws"
@@ -35,6 +37,18 @@ func main() {
 	defer database.Close(db)
 
 	database.Migrate(db)
+
+	// Seed default admin if no users exist
+	handlers.SeedAdmin(db)
+
+	// Generate or use JWT secret
+	jwtSecret := make([]byte, 32)
+	if s := os.Getenv("JWT_SECRET"); s != "" {
+		copy(jwtSecret, []byte(s))
+	} else {
+		rand.Read(jwtSecret)
+	}
+	middleware.SetJWTSecret(jwtSecret)
 
 	registry := ws.NewRegistry()
 	go registry.Run()
@@ -110,7 +124,13 @@ func main() {
 
 	// REST API
 	api := r.Group("/api")
+	api.Use(middleware.AuthRequired("/api/auth/login"))
 	{
+		// Auth (login is public, others require auth)
+		api.POST("/auth/login", handlers.Login(db))
+		api.POST("/auth/change-password", handlers.ChangePassword(db))
+		api.GET("/auth/me", handlers.Me(db))
+
 		api.GET("/stats", handlers.GetDashboardStats(db, registry))
 		api.GET("/topology", handlers.GetTopology(db, registry))
 		api.GET("/audit", handlers.ListAudit(db))

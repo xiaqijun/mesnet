@@ -1,5 +1,6 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
+import { useAuth } from '../context/AuthContext'
 
 const nav = [
   { to: '/', label: '仪表盘' },
@@ -9,11 +10,20 @@ const nav = [
   { to: '/monitor', label: '流量监控' },
 ]
 
-export default function Layout({ children }) {
+export default function Layout() {
+  const { logout, user } = useAuth()
+  const navigate = useNavigate()
   const [ver, setVer] = useState('')
+
   useEffect(() => {
     fetch('/api/agents/versions').then(r => r.json()).then(d => setVer(d.server_version || ''))
   }, [])
+
+  const handleLogout = () => {
+    logout()
+    navigate('/login')
+  }
+
   return (
     <div className="flex h-screen">
       <aside className="w-56 bg-gray-900 border-r border-gray-800 flex flex-col">
@@ -39,9 +49,20 @@ export default function Layout({ children }) {
             </NavLink>
           ))}
         </nav>
-        {ver && <div className="p-3 border-t border-gray-800 text-[10px] text-gray-600">{ver}</div>}
+        <div className="p-3 border-t border-gray-800 space-y-2">
+          <div className="text-xs text-gray-600">{user?.username}</div>
+          <button
+            onClick={handleLogout}
+            className="w-full px-3 py-1.5 text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded transition-colors text-left"
+          >
+            退出登录
+          </button>
+          {ver && <div className="text-[10px] text-gray-600">{ver}</div>}
+        </div>
       </aside>
-      <main className="flex-1 overflow-auto p-6">{children}</main>
+      <main className="flex-1 overflow-auto p-6">
+        <Outlet />
+      </main>
     </div>
   )
 }
