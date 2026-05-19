@@ -38,23 +38,16 @@ type snapshotBatcher struct {
 	mu     sync.Mutex
 }
 
-func (b *snapshotBatcher) add(_ uint, stats statsMessage) {
+func (b *snapshotBatcher) add(tunnelID uint, rxBytes, txBytes int64, latencyMs float64) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	for tunnelIDStr, ts := range stats.Tunnels {
-		var tunnelID uint
-		fmt.Sscanf(tunnelIDStr, "tun-%d", &tunnelID)
-		if tunnelID == 0 {
-			continue
-		}
-		b.buffer[tunnelID] = append(b.buffer[tunnelID], snapshotEntry{
-			tunnelID:  tunnelID,
-			rxBytes:   ts.RxBytes,
-			txBytes:   ts.TxBytes,
-			latencyMs: ts.LatencyMs,
-		})
-	}
+	b.buffer[tunnelID] = append(b.buffer[tunnelID], snapshotEntry{
+		tunnelID:  tunnelID,
+		rxBytes:   rxBytes,
+		txBytes:   txBytes,
+		latencyMs: latencyMs,
+	})
 }
 
 func (b *snapshotBatcher) flush(db *gorm.DB) {
@@ -97,18 +90,29 @@ func StartCollector(db *gorm.DB, registry *ws.Registry) {
 		}
 
 		for tunnelIDStr, ts := range stats.Tunnels {
-			var tunnelID uint
-			fmt.Sscanf(tunnelIDStr, "tun-%d", &tunnelID)
-			if tunnelID == 0 {
+			var peerNodeID uint
+			fmt.Sscanf(tunnelIDStr, "tun-%d", &peerNodeID)
+			if peerNodeID == 0 {
 				continue
 			}
 
-			db.Table("tunnels").Where("id = ?", tunnelID).Updates(map[string]any{
+			// Look up tunnel by (sender, peer) node IDs
+			var tunnel models.Tunnel
+			if err := db.Where(
+				"(left_node_id = ? AND right_node_id = ?) OR (left_node_id = ? AND right_node_id = ?)",
+				ac.NodeID, peerNodeID, peerNodeID, ac.NodeID,
+			).First(&tunnel); err != nil {
+				continue
+			}
+
+			db.Table("tunnels").Where("id = ?", tunnel.ID).Updates(map[string]any{
 				"rx_bytes":   gorm.Expr("rx_bytes + ?", ts.RxBytes),
 				"tx_bytes":   gorm.Expr("tx_bytes + ?", ts.TxBytes),
 				"latency_ms": ts.LatencyMs,
 				"updated_at": time.Now(),
 			})
+
+			collector.add(tunnel.ID, ts.RxBytes, ts.TxBytes, ts.LatencyMs)
 		}
 
 		db.Table("nodes").Where("id = ?", ac.NodeID).Updates(map[string]any{
@@ -116,8 +120,6 @@ func StartCollector(db *gorm.DB, registry *ws.Registry) {
 			"memory_mb": stats.System.MemUsedMB,
 			"last_seen": time.Now(),
 		})
-
-		collector.add(ac.NodeID, stats)
 	})
 
 	// Flush snapshots every 10 seconds

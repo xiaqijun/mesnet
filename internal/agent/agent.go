@@ -103,6 +103,7 @@ func (a *Agent) Start() error {
 			return // non-data frame
 		}
 
+		a.stats.RecordRX(nodeID, uint64(len(plaintext)))
 		dstIP := extractDstIP(plaintext)
 		_, nextHop := a.routes.Lookup(dstIP)
 

@@ -17,6 +17,8 @@ func NewTunnel(agent *Agent) *Tunnel {
 // SendEncrypted encrypts a raw IP packet and sends it to a peer using
 // the SecureChannel's ChaCha20-Poly1305 AEAD encryption.
 func (t *Tunnel) SendEncrypted(nodeID uint, packet []byte) error {
+	t.agent.stats.RecordTX(nodeID, uint64(len(packet)))
+
 	t.agent.mu.Lock()
 	ch := t.agent.channels[nodeID]
 	t.agent.mu.Unlock()
