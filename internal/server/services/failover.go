@@ -2,6 +2,7 @@ package services
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"sort"
 	"time"
@@ -108,9 +109,38 @@ func SwitchBackbone(db *gorm.DB, registry *ws.Registry, leaf *models.Node, oldBB
 		return
 	}
 
+	// Mark old tunnel as down
 	db.Model(&models.Tunnel{}).
 		Where("(left_node_id = ? AND right_node_id = ?) OR (left_node_id = ? AND right_node_id = ?)",
 			leaf.ID, oldBB, oldBB, leaf.ID).
+		Update("status", "down")
+
+	// Create or update tunnel for new backbone
+	var newTunnel models.Tunnel
+	err = db.Where(
+		"(left_node_id = ? AND right_node_id = ?) OR (left_node_id = ? AND right_node_id = ?)",
+		leaf.ID, newBB, newBB, leaf.ID,
+	).First(&newTunnel).Error
+	if err != nil {
+		newTunnel = models.Tunnel{
+			Name:        fmt.Sprintf("%s -> %s", leaf.Name, newBBNode.Name),
+			LeftNodeID:  leaf.ID,
+			RightNodeID: newBB,
+			Status:      "up",
+			CreatedAt:   time.Now(),
+			UpdatedAt:   time.Now(),
+		}
+		db.Create(&newTunnel)
+	} else {
+		newTunnel.Status = "up"
+		newTunnel.UpdatedAt = time.Now()
+		db.Save(&newTunnel)
+	}
+
+	// Remove any other stale tunnels for this leaf
+	db.Model(&models.Tunnel{}).
+		Where("(left_node_id = ? OR right_node_id = ?) AND status = ? AND id != ?)",
+			leaf.ID, leaf.ID, "up", newTunnel.ID).
 		Update("status", "down")
 
 	log.Printf("failover: leaf %d switched backbone %d -> %d", leaf.ID, oldBB, newBB)
