@@ -34,6 +34,9 @@ func CheckAndFailover(db *gorm.DB, registry *ws.Registry) {
 				leaf.ID, leaf.ID, "up",
 			).First(&tunnel).Error
 			if err != nil {
+				// No tunnel — trigger AutoMesh to create one
+				log.Printf("failover: leaf %d has no tunnel, triggering AutoMesh", leaf.ID)
+				go AutoMesh(db, registry, leaf.ID)
 				continue
 			}
 
@@ -114,8 +117,8 @@ func SwitchBackbone(db *gorm.DB, registry *ws.Registry, leaf *models.Node, oldBB
 }
 
 // SelectBestBackbone asks the leaf agent to probe all backbones and
-// returns the one with the lowest TCP latency. If leafID is 0 (leaf not yet online),
-// falls back to server-side TCP probe.
+// returns the one with the lowest TCP latency. If leafID is 0, falls back
+// to returning first available backbone.
 func SelectBestBackbone(db *gorm.DB, registry *ws.Registry, leafID uint, excludeID uint) uint {
 	var backbones []models.Node
 	db.Where("backbone = ? AND id != ?", true, excludeID).Find(&backbones)
@@ -134,7 +137,7 @@ func SelectBestBackbone(db *gorm.DB, registry *ws.Registry, leafID uint, exclude
 		return 0
 	}
 
-	// If leaf is online, ask it to probe. Otherwise fall back to server-side.
+	// If leaf is online, ask it to probe. Otherwise fall back.
 	if leafID > 0 && registry.IsOnline(leafID) {
 		result, err := registry.SendCmd(leafID, "backbone_probe",
 			map[string]any{"addrs": addrs}, 4*time.Second)
@@ -159,6 +162,5 @@ func SelectBestBackbone(db *gorm.DB, registry *ws.Registry, leafID uint, exclude
 		}
 	}
 
-	// Fallback: return first available backbone
 	return addrs[0].ID
 }
