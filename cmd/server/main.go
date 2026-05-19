@@ -65,6 +65,9 @@ func main() {
 	// Start stats collector
 	services.StartCollector(db, registry)
 
+	// Start failover for leaf nodes
+	go services.CheckAndFailover(db, registry)
+
 	r := gin.Default()
 
 	r.Use(corsMiddleware())

@@ -30,7 +30,7 @@ type addCloudBody struct {
 
 type addLeafBody struct {
 	Name       string `json:"name" binding:"required"`
-	BackboneID uint   `json:"backbone_id" binding:"required"`
+	BackboneID uint   `json:"backbone_id"` // optional, auto-selected if 0
 	Subnets    string `json:"subnets"`
 }
 
@@ -137,6 +137,16 @@ func AddLeafNode(db *gorm.DB, registry *ws.Registry) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+
+		// Auto-select backbone if not specified
+		if body.BackboneID == 0 {
+			body.BackboneID = services.SelectBestBackbone(db, registry, 0)
+			if body.BackboneID == 0 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "no online backbone available"})
+				return
+			}
+		}
+
 		var backbone models.Node
 		if err := db.First(&backbone, body.BackboneID).Error; err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "backbone not found"})

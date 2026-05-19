@@ -55,11 +55,10 @@ export default function Servers() {
 
   const handleAddLeaf = async (e) => {
     e.preventDefault()
-    if (!selectedBackbone) return
     const res = await fetch('/api/servers/leaf', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...leafForm, backbone_id: selectedBackbone }),
+      body: JSON.stringify(leafForm),
     })
     const data = await res.json()
     if (data.node) {
@@ -162,7 +161,6 @@ export default function Servers() {
           <button onClick={() => {
             if (cloudServers.length === 0) { alert('请先添加云服务器'); return }
             setShowAddLeaf(!showAddLeaf)
-            setSelectedBackbone(cloudServers[0].id)
           }} className="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors">
             添加叶子节点
           </button>
@@ -215,17 +213,12 @@ export default function Servers() {
 
       {/* Add Leaf Form */}
       {showAddLeaf && (
-        <form onSubmit={handleAddLeaf} className="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-6 grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-[10px] text-gray-500 mb-1 block">所属骨干节点</label>
-            <select className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-xs text-gray-200 w-full" value={selectedBackbone || ''} onChange={(e) => setSelectedBackbone(Number(e.target.value))}>
-              {cloudServers.map((s) => (
-                <option key={s.id} value={s.id}>{s.name} ({s.subnets || 'no subnet'})</option>
-              ))}
-            </select>
+        <form onSubmit={handleAddLeaf} className="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-6 flex gap-3 items-end">
+          <div className="flex-1">
+            <label className="text-[10px] text-gray-500 mb-1 block">名称</label>
+            <input className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-xs text-gray-200 w-full" placeholder="如: 办公室PC" value={leafForm.name} onChange={(e) => setLeafForm({ name: e.target.value })} required />
           </div>
-          <input className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-xs text-gray-200" placeholder="名称 (如: 办公室PC)" value={leafForm.name} onChange={(e) => setLeafForm({ ...leafForm, name: e.target.value })} required />
-          <input className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-xs text-gray-200" placeholder="子网 (留空自动继承骨干)" value={leafForm.subnets} onChange={(e) => setLeafForm({ ...leafForm, subnets: e.target.value })} />
+          <div className="text-[10px] text-gray-500 mb-1">自动挂载到最近骨干节点</div>
           <div className="flex gap-2">
             <button type="submit" className="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded">添加并部署</button>
             <button type="button" onClick={() => setShowAddLeaf(false)} className="px-3 py-1.5 text-xs text-gray-400 hover:text-gray-200">取消</button>
