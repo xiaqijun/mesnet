@@ -53,6 +53,9 @@ func (t *TUNDevice) Create(ip string) error {
 		return errno
 	}
 
+	// Set non-blocking so Go's runtime epoll works on this fd
+	syscall.SetNonblock(int(fd.Fd()), true)
+
 	// Assign IP
 	cmd := exec.Command("ip", "addr", "add", ip+"/16", "dev", t.name)
 	if out, err := cmd.CombinedOutput(); err != nil {
