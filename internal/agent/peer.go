@@ -26,6 +26,7 @@ type PeerManager struct {
 	onRecv        func(nodeID uint, frame []byte)                    // called when data received from a peer
 	onHandshake   func(nodeID uint, frame []byte) ([]byte, error)    // called when handshake frame received
 	onProbeResp   func(nodeID uint, seq uint32)                      // called when probe response received
+	onDisconnect  func(nodeID uint)                                  // called when peer disconnects
 	mu            sync.RWMutex
 }
 
@@ -59,6 +60,11 @@ func (pm *PeerManager) SetOnHandshake(fn func(nodeID uint, frame []byte) ([]byte
 // SetOnProbeResponse sets the callback for incoming probe response frames.
 func (pm *PeerManager) SetOnProbeResponse(fn func(nodeID uint, seq uint32)) {
 	pm.onProbeResp = fn
+}
+
+// SetOnDisconnect sets the callback invoked when a peer disconnects.
+func (pm *PeerManager) SetOnDisconnect(fn func(nodeID uint)) {
+	pm.onDisconnect = fn
 }
 
 func (pm *PeerManager) Listen() (int, error) {
@@ -172,16 +178,47 @@ func (pm *PeerManager) Close() {
 // readLoop reads binary frames from a peer connection and dispatches to
 // onHandshake (for handshake frames) or onRecv (for data frames).
 func (pm *PeerManager) readLoop(nodeID uint, conn *websocket.Conn) {
+	// TCP keepalive: detect dead peers in ~6s (3 idle + 1s interval * 3 probes)
+	if tcpConn, ok := conn.UnderlyingConn().(*net.TCPConn); ok {
+		tcpConn.SetKeepAlive(true)
+		tcpConn.SetKeepAlivePeriod(3 * time.Second)
+	}
+
+	// WebSocket ping/pong heartbeat — 5s interval, 10s read deadline
+	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	conn.SetPongHandler(func(string) error {
+		conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+		return nil
+	})
+
+	// Periodic ping sender
+	pingQuit := make(chan struct{})
+	defer close(pingQuit)
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-pingQuit:
+				return
+			case <-ticker.C:
+				conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(5*time.Second))
+			}
+		}
+	}()
+
 	for {
 		msgType, data, err := conn.ReadMessage()
 		if err != nil {
 			log.Printf("peer %d read error: %v", nodeID, err)
 			pm.mu.Lock()
-			// Only delete if this connection is still the active one
 			if p, ok := pm.peers[nodeID]; ok && p.Conn == conn {
 				delete(pm.peers, nodeID)
 			}
 			pm.mu.Unlock()
+			if pm.onDisconnect != nil {
+				pm.onDisconnect(nodeID)
+			}
 			return
 		}
 		if msgType != websocket.BinaryMessage {

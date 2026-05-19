@@ -13,6 +13,7 @@ import (
 	"github.com/mesnet/mesnet/internal/server/config"
 	"github.com/mesnet/mesnet/internal/server/database"
 	"github.com/mesnet/mesnet/internal/server/handlers"
+	"github.com/mesnet/mesnet/internal/server/models"
 	"github.com/mesnet/mesnet/internal/server/services"
 	"github.com/mesnet/mesnet/internal/server/ws"
 	"github.com/mesnet/mesnet/internal/version"
@@ -44,6 +45,19 @@ func main() {
 			time.Sleep(3 * time.Second)
 			for _, id := range registry.ListOnline() {
 				services.AutoMesh(db, registry, id)
+			}
+		}()
+	})
+
+	// Notify peers when agent disconnects for fast convergence
+	registry.SetOnUnregister(func(nodeID uint) {
+		go func() {
+			// Mark tunnels as down
+			db.Model(&models.Tunnel{}).Where("left_node_id = ? OR right_node_id = ?", nodeID, nodeID).
+				Update("status", "down")
+			// Notify other peers to clean up
+			for _, id := range registry.ListOnline() {
+				registry.SendCmd(id, "peer_disconnect", map[string]any{"peer_id": nodeID}, 3*time.Second)
 			}
 		}()
 	})

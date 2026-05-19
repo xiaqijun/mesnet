@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"log"
+	"net"
 	"sync"
 	"time"
 
@@ -53,6 +54,12 @@ func (c *WSClient) Connect() {
 		c.closed = false
 		c.mu.Unlock()
 
+		// TCP keepalive for fast CP offline detection
+		if tcpConn, ok := conn.UnderlyingConn().(*net.TCPConn); ok {
+			tcpConn.SetKeepAlive(true)
+			tcpConn.SetKeepAlivePeriod(3 * time.Second)
+		}
+
 		c.SendJSON(map[string]any{
 			"type":        "hello",
 			"name":        "agent",
@@ -70,6 +77,28 @@ func (c *WSClient) Connect() {
 }
 
 func (c *WSClient) readLoop(conn *websocket.Conn) {
+	// WS heartbeat: 10s read deadline, reset on pong
+	conn.SetReadDeadline(time.Now().Add(15 * time.Second))
+	conn.SetPongHandler(func(string) error {
+		conn.SetReadDeadline(time.Now().Add(15 * time.Second))
+		return nil
+	})
+
+	pingQuit := make(chan struct{})
+	defer close(pingQuit)
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-pingQuit:
+				return
+			case <-ticker.C:
+				conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(5*time.Second))
+			}
+		}
+	}()
+
 	for {
 		_, raw, err := conn.ReadMessage()
 		if err != nil {

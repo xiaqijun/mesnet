@@ -51,11 +51,12 @@ func (ac *AgentConn) SendPing() error {
 
 // Registry manages active Agent WebSocket connections.
 type Registry struct {
-	conns   map[uint]*AgentConn
-	onRecv  func(*AgentConn, Message)
-	onHello func(nodeID uint)
-	pending map[string]chan Message
-	mu      sync.RWMutex
+	conns       map[uint]*AgentConn
+	onRecv      func(*AgentConn, Message)
+	onHello     func(nodeID uint)
+	onUnregister func(nodeID uint)
+	pending     map[string]chan Message
+	mu          sync.RWMutex
 }
 
 func NewRegistry() *Registry {
@@ -73,6 +74,10 @@ func (r *Registry) SetOnHello(fn func(nodeID uint)) {
 	r.onHello = fn
 }
 
+func (r *Registry) SetOnUnregister(fn func(nodeID uint)) {
+	r.onUnregister = fn
+}
+
 func (r *Registry) Register(nodeID uint, ac *AgentConn) {
 	r.mu.Lock()
 	r.conns[nodeID] = ac
@@ -85,6 +90,9 @@ func (r *Registry) Unregister(nodeID uint) {
 	delete(r.conns, nodeID)
 	r.mu.Unlock()
 	log.Printf("agent unregistered: node=%d", nodeID)
+	if r.onUnregister != nil {
+		go r.onUnregister(nodeID)
+	}
 }
 
 func (r *Registry) IsOnline(nodeID uint) bool {
