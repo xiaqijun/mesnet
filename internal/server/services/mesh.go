@@ -202,7 +202,7 @@ func createLeafTunnel(db *gorm.DB, registry *ws.Registry, leaf, backbone *models
 		RightNodeID: backbone.ID,
 		LeftSubnet:  leaf.Subnets,
 		RightSubnet: backbone.Subnets,
-		Status:      "down",
+		Status:      "up",
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 	}
