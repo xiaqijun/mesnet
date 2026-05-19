@@ -42,9 +42,11 @@ func AutoMesh(db *gorm.DB, registry *ws.Registry, nodeID uint) {
 			createBackboneMesh(db, registry, &node, &peer)
 		}
 	} else {
-		best := findBestBackbone(peers)
-		if best != nil {
-			createLeafTunnel(db, registry, &node, best)
+		// Leaf connects to all backbones for hot-standby failover
+		for _, peer := range peers {
+			if peer.Backbone {
+				createLeafTunnel(db, registry, &node, &peer)
+			}
 		}
 	}
 

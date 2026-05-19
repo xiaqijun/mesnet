@@ -181,13 +181,13 @@ func (pm *PeerManager) readLoop(nodeID uint, conn *websocket.Conn) {
 	// TCP keepalive: detect dead peers in ~6s (3 idle + 1s interval * 3 probes)
 	if tcpConn, ok := conn.UnderlyingConn().(*net.TCPConn); ok {
 		tcpConn.SetKeepAlive(true)
-		tcpConn.SetKeepAlivePeriod(3 * time.Second)
+		tcpConn.SetKeepAlivePeriod(1 * time.Second)
 	}
 
-	// WebSocket ping/pong heartbeat — 5s interval, 10s read deadline
-	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	// WebSocket ping/pong heartbeat — 500ms interval, 2s deadline
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	conn.SetPongHandler(func(string) error {
-		conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+		conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 		return nil
 	})
 
@@ -195,7 +195,7 @@ func (pm *PeerManager) readLoop(nodeID uint, conn *websocket.Conn) {
 	pingQuit := make(chan struct{})
 	defer close(pingQuit)
 	go func() {
-		ticker := time.NewTicker(5 * time.Second)
+		ticker := time.NewTicker(500 * time.Millisecond)
 		defer ticker.Stop()
 		for {
 			select {

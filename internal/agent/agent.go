@@ -185,6 +185,24 @@ func (a *Agent) Start() error {
 	tunnel := NewTunnel(a)
 	go tunnel.Run()
 
+	// Fast failover: when a peer disconnects, immediately switch routes to backup
+	a.peers.SetOnDisconnect(func(nodeID uint) {
+		// Find alternative routes through remaining peers
+		remainingPeers := a.peers.ListPeers()
+		for _, route := range a.routes.List() {
+			if route.NextHop == nodeID {
+				// Try to find a new nextHop through another peer
+				for _, altPeer := range remainingPeers {
+					if altPeer != nodeID {
+						route.NextHop = altPeer
+						log.Printf("failover: route %s switched from peer %d to %d", route.Subnet, nodeID, altPeer)
+						break
+					}
+				}
+			}
+		}
+	})
+
 	return nil
 }
 
