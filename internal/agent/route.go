@@ -3,11 +3,7 @@ package agent
 import (
 	"encoding/binary"
 	"fmt"
-	"log"
 	"net"
-	"os"
-	"os/exec"
-	"strings"
 	"sync"
 )
 
@@ -43,17 +39,7 @@ func (r *RouteManager) Add(subnet string, nodeID, nextHop uint) error {
 	}
 
 	r.routes[subnet] = entry
-
-	// Only sync to kernel if TUN device exists
-	if _, err := os.Stat("/sys/class/net/tun0"); err == nil {
-		cmd := exec.Command("ip", "route", "add", subnet, "dev", "tun0")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			outStr := strings.TrimSpace(string(out))
-			if !strings.Contains(outStr, "File exists") {
-				log.Printf("route add %s dev tun0: %s", subnet, outStr)
-			}
-		}
-	}
+	routeAddKernel(subnet)
 	return nil
 }
 
@@ -64,14 +50,7 @@ func (r *RouteManager) FlushKernel() {
 	defer r.mu.RUnlock()
 
 	for subnet := range r.routes {
-		cmd := exec.Command("ip", "route", "add", subnet, "dev", "tun0")
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			outStr := strings.TrimSpace(string(out))
-			if !strings.Contains(outStr, "File exists") {
-				log.Printf("route flush %s dev tun0: %s", subnet, outStr)
-			}
-		}
+		routeAddKernel(subnet)
 	}
 }
 
@@ -84,9 +63,7 @@ func (r *RouteManager) Del(subnet string) error {
 		return nil
 	}
 	delete(r.routes, subnet)
-
-	cmd := exec.Command("ip", "route", "del", subnet, "dev", "tun0")
-	cmd.CombinedOutput()
+	routeDelKernel(subnet)
 	return nil
 }
 
@@ -154,35 +131,8 @@ func (r *RouteManager) getSubnets() []string {
 }
 
 // DetectSubnets discovers the real physical NIC subnet (default route interface).
-// Returns the network address (e.g. 10.1.0.0/22), not the host IP (10.1.0.2/22).
 func (r *RouteManager) DetectSubnets() ([]string, error) {
-	out, err := exec.Command("sh", "-c",
-		"ip route show default | awk '{print $5}' | head -1").CombinedOutput()
-	if err != nil {
-		return nil, err
-	}
-	iface := strings.TrimSpace(string(out))
-	if iface == "" {
-		return nil, nil
-	}
-
-	out, err = exec.Command("sh", "-c",
-		"ip -4 -o addr show "+iface+" | awk '{print $4}' | head -1").CombinedOutput()
-	if err != nil {
-		return nil, err
-	}
-	cidr := strings.TrimSpace(string(out))
-	if cidr == "" {
-		return nil, nil
-	}
-
-	// Convert host CIDR to network address: 10.1.0.2/22 → 10.1.0.0/22
-	if _, ipNet, err := net.ParseCIDR(cidr); err == nil {
-		cidr = ipNet.String()
-	}
-
-	log.Printf("detected subnet: %s on %s", cidr, iface)
-	return []string{cidr}, nil
+	return detectSubnets()
 }
 
 // extractDstIP extracts the destination IP from an IPv4 packet header.

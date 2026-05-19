@@ -56,6 +56,28 @@ jobs:
           name: mesnet-agent-linux
           path: mesnet-agent-linux-*
 
+  # ── Go Agent (Windows) ──
+  agent-windows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Build agent (windows/amd64)
+        run: |
+          VER=${GITHUB_REF##*/}
+          [ -z "$VER" ] && VER="dev"
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-X github.com/mesnet/mesnet/internal/version.Current=${VER}" -o mesnet-agent-windows-amd64.exe ./cmd/agent/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mesnet-agent-windows
+          path: mesnet-agent-windows-amd64.exe
+
   # ── Go Agent (macOS) ──
   agent-darwin:
     runs-on: ubuntu-latest
@@ -108,7 +130,7 @@ jobs:
 
   # ── Release (on tag push) ──
   release:
-    needs: [server, agent-linux, agent-darwin, web]
+    needs: [server, agent-linux, agent-windows, agent-darwin, web]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -125,6 +147,7 @@ jobs:
           tag_name: ${{ github.ref_name }}
           files: |
             mesnet-agent-linux/mesnet-agent-linux-*
+            mesnet-agent-windows/mesnet-agent-windows-*
             mesnet-agent-darwin/mesnet-agent-darwin-*
             mesnet-server/mesnet-server
             mesnet-web.tar.gz
