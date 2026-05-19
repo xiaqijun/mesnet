@@ -22,7 +22,7 @@ type statsMessage struct {
 	Tunnels map[string]tunnelStats `json:"tunnels"`
 	System  struct {
 		CPUPercent float64 `json:"cpu_pct"`
-		MemUsedMB  int     `json:"mem_used_mb"`
+		MemUsedMB  int     `json:"mem_mb"`
 	} `json:"system"`
 }
 

@@ -68,31 +68,19 @@ func readCPU() float64 {
 	return float64(totalDelta-idleDelta) / float64(totalDelta) * 100
 }
 
-// readMemMB reads /proc/meminfo and returns used memory in MB.
+// readMemMB reads /proc/meminfo and returns total memory in MB.
 func readMemMB() uint64 {
 	data, err := os.ReadFile("/proc/meminfo")
 	if err != nil {
 		return 0
 	}
-	// Parse MemTotal and MemAvailable
-	lines := strings.Split(string(data), "\n")
-	var total, avail uint64
-	for _, line := range lines {
+	for _, line := range strings.Split(string(data), "\n") {
 		if strings.HasPrefix(line, "MemTotal:") {
-			total, _ = parseKB(line)
-		} else if strings.HasPrefix(line, "MemAvailable:") {
-			avail, _ = parseKB(line)
+			total, _ := parseKB(line)
+			return total / 1024
 		}
 	}
-	if total == 0 {
-		return 0
-	}
-	usedMB := (total - avail) / 1024
-	if usedMB == 0 && avail > 0 {
-		// If MemAvailable not found, use MemFree + Buffers + Cached
-		usedMB = total / 1024
-	}
-	return usedMB
+	return 0
 }
 
 func parseKB(line string) (uint64, error) {

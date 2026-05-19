@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"sort"
 	"strings"
 	"time"
 
@@ -15,6 +16,40 @@ import (
 )
 
 const maxMeshPeers = 3
+
+// Weighted scoring constants for backbone selection
+const (
+	weightLatency = 0.5
+	weightCPU     = 0.25
+	weightMemory  = 0.25
+	memRefMB      = 8192  // memory score reference point (8 GB)
+	latencyRefMs  = 100.0 // latency score midpoint: 100ms → 0.5
+)
+
+// scoreBackbone computes a weighted score (0.0–1.0) for a backbone candidate.
+// Pass latencyMs=-1 to skip latency (re-normalizes over CPU+memory only).
+func scoreBackbone(cpu int, memoryMB int, latencyMs int64) float64 {
+	cpuScore := 1.0 - float64(cpu)/100.0
+	if cpuScore < 0 {
+		cpuScore = 0
+	}
+
+	memScore := float64(memoryMB) / memRefMB
+	if memScore > 1.0 {
+		memScore = 1.0
+	}
+
+	if latencyMs < 0 {
+		denom := weightCPU + weightMemory
+		if denom == 0 {
+			return 0
+		}
+		return (weightCPU*cpuScore + weightMemory*memScore) / denom
+	}
+
+	latencyScore := latencyRefMs / (float64(latencyMs) + latencyRefMs)
+	return weightLatency*latencyScore + weightCPU*cpuScore + weightMemory*memScore
+}
 
 func AutoMesh(db *gorm.DB, registry *ws.Registry, nodeID uint) {
 	var node models.Node
@@ -42,9 +77,12 @@ func AutoMesh(db *gorm.DB, registry *ws.Registry, nodeID uint) {
 			createBackboneMesh(db, registry, &node, &peer)
 		}
 	} else {
-		best := findBestBackbone(peers)
-		if best != nil {
-			createLeafTunnel(db, registry, &node, best)
+		bestID := SelectBestBackbone(db, registry, node.ID, 0)
+		if bestID > 0 {
+			var best models.Node
+			if db.First(&best, bestID).Error == nil {
+				createLeafTunnel(db, registry, &node, &best)
+			}
 		}
 	}
 
@@ -217,35 +255,25 @@ func createLeafTunnel(db *gorm.DB, registry *ws.Registry, leaf, backbone *models
 
 func findBestPeers(db *gorm.DB, registry *ws.Registry, excludeID uint) []models.Node {
 	var all []models.Node
-	db.Where("id != ? AND backbone = ?", excludeID, true).Order("cpu * memory_mb DESC").Find(&all)
-	if len(all) > maxMeshPeers {
-		all = all[:maxMeshPeers]
-	}
-	var online []models.Node
+	db.Where("id != ? AND backbone = ?", excludeID, true).Find(&all)
+
+	var candidates []models.Node
 	for _, n := range all {
 		if registry.IsOnline(n.ID) {
-			online = append(online, n)
+			candidates = append(candidates, n)
 		}
 	}
-	return online
-}
 
-func findBestBackbone(nodes []models.Node) *models.Node {
-	for i := range nodes {
-		if nodes[i].Backbone {
-			return &nodes[i]
-		}
-	}
-	return nil
-}
+	sort.Slice(candidates, func(i, j int) bool {
+		si := scoreBackbone(candidates[i].CPU, candidates[i].MemoryMB, -1)
+		sj := scoreBackbone(candidates[j].CPU, candidates[j].MemoryMB, -1)
+		return si > sj
+	})
 
-func findSecondBest(nodes []models.Node, excludeID uint) *models.Node {
-	for i := range nodes {
-		if nodes[i].ID != excludeID && nodes[i].Connected {
-			return &nodes[i]
-		}
+	if len(candidates) > maxMeshPeers {
+		candidates = candidates[:maxMeshPeers]
 	}
-	return nil
+	return candidates
 }
 
 func DetectAndSaveSubnets(db *gorm.DB, registry *ws.Registry, node *models.Node) {

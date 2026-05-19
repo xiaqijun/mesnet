@@ -117,8 +117,8 @@ func SwitchBackbone(db *gorm.DB, registry *ws.Registry, leaf *models.Node, oldBB
 }
 
 // SelectBestBackbone asks the leaf agent to probe all backbones and
-// returns the one with the lowest TCP latency. If leafID is 0, falls back
-// to returning first available backbone.
+// returns the one with the highest weighted score (latency + CPU + memory).
+// When leafID is 0, falls back to CPU+memory scoring only.
 func SelectBestBackbone(db *gorm.DB, registry *ws.Registry, leafID uint, excludeID uint) uint {
 	var backbones []models.Node
 	db.Where("backbone = ? AND id != ?", true, excludeID).Find(&backbones)
@@ -128,16 +128,18 @@ func SelectBestBackbone(db *gorm.DB, registry *ws.Registry, leafID uint, exclude
 		Addr string `json:"addr"`
 	}
 	var addrs []probeAddr
+	bbByID := make(map[uint]models.Node, len(backbones))
 	for _, bb := range backbones {
 		if registry.IsOnline(bb.ID) && bb.ListenAddr != "" {
 			addrs = append(addrs, probeAddr{ID: bb.ID, Addr: bb.ListenAddr})
+			bbByID[bb.ID] = bb
 		}
 	}
 	if len(addrs) == 0 {
 		return 0
 	}
 
-	// If leaf is online, ask it to probe. Otherwise fall back.
+	// If leaf is online, ask it to probe, then score by weighted metrics.
 	if leafID > 0 && registry.IsOnline(leafID) {
 		result, err := registry.SendCmd(leafID, "backbone_probe",
 			map[string]any{"addrs": addrs}, 4*time.Second)
@@ -150,17 +152,44 @@ func SelectBestBackbone(db *gorm.DB, registry *ws.Registry, leafID uint, exclude
 				} `json:"results"`
 			}
 			json.Unmarshal(result.Data, &data)
-			sort.Slice(data.Results, func(i, j int) bool {
-				return data.Results[i].RTTMS >= 0 && data.Results[i].RTTMS < data.Results[j].RTTMS
-			})
+
+			type scored struct {
+				id    uint
+				score float64
+				rtt   int64
+			}
+			var scoredList []scored
 			for _, r := range data.Results {
-				if r.RTTMS >= 0 {
-					log.Printf("backbone %d latency from leaf %d: %dms", r.ID, leafID, r.RTTMS)
-					return r.ID
+				if bb, ok := bbByID[r.ID]; ok && r.RTTMS >= 0 {
+					scoredList = append(scoredList, scored{
+						id:    r.ID,
+						score: scoreBackbone(bb.CPU, bb.MemoryMB, r.RTTMS),
+						rtt:   r.RTTMS,
+					})
 				}
+			}
+			if len(scoredList) > 0 {
+				sort.Slice(scoredList, func(i, j int) bool {
+					return scoredList[i].score > scoredList[j].score
+				})
+				best := scoredList[0]
+				log.Printf("selected backbone %d for leaf %d: score=%.3f latency=%dms cpu=%d mem=%dMB",
+					best.id, leafID, best.score, best.rtt, bbByID[best.id].CPU, bbByID[best.id].MemoryMB)
+				return best.id
 			}
 		}
 	}
 
-	return addrs[0].ID
+	// Fallback: score by CPU + memory only
+	var bestID uint
+	var bestScore float64
+	for id, bb := range bbByID {
+		s := scoreBackbone(bb.CPU, bb.MemoryMB, -1)
+		if s > bestScore {
+			bestScore = s
+			bestID = id
+		}
+	}
+	log.Printf("selected backbone %d with score %.3f (fallback, no probe)", bestID, bestScore)
+	return bestID
 }
