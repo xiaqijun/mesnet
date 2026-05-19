@@ -19,6 +19,7 @@ func CheckAndFailover(db *gorm.DB, registry *ws.Registry) {
 	defer ticker.Stop()
 
 	highLatencyCount := make(map[uint]int)
+	tick := 0
 
 	for range ticker.C {
 		var leaves []models.Node
@@ -75,6 +76,18 @@ func CheckAndFailover(db *gorm.DB, registry *ws.Registry) {
 				}
 			} else {
 				highLatencyCount[leaf.ID] = 0
+			}
+
+		}
+
+		tick++
+		if tick >= 60 {
+			tick = 0
+			var count int64
+			db.Model(&models.Tunnel{}).Where("status = ?", "down").Count(&count)
+			if count > 0 {
+				db.Where("status = ?", "down").Delete(&models.Tunnel{})
+				log.Printf("failover: cleaned %d stale down tunnel(s)", count)
 			}
 		}
 	}

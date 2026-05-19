@@ -38,6 +38,9 @@ func main() {
 
 	database.Migrate(db)
 
+	// Clean up stale down tunnels on startup
+	db.Where("status = ?", "down").Delete(&models.Tunnel{})
+
 	// Seed default admin if no users exist
 	handlers.SeedAdmin(db)
 
