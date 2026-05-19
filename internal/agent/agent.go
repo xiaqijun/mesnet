@@ -106,15 +106,16 @@ func (a *Agent) Start() error {
 		dstIP := extractDstIP(plaintext)
 		_, nextHop := a.routes.Lookup(dstIP)
 
+		// Relay first — forward to next hop if not for us
+		if nextHop != 0 && nextHop != nodeID {
+			tun.SendEncrypted(nextHop, plaintext)
+			return
+		}
+
 		// Check if this IP belongs to one of our local subnets
 		if isLocalIP(a.tun.IP(), dstIP) || a.isInOurSubnets(dstIP) {
 			a.tun.Write(plaintext)
 			return
-		}
-
-		// Relay: forward to next hop if not for us
-		if nextHop != 0 && nextHop != nodeID {
-			tun.SendEncrypted(nextHop, plaintext)
 		}
 	})
 
@@ -186,6 +187,11 @@ func (a *Agent) Start() error {
 	go tunnel.Run()
 
 	// Fast failover: when a peer disconnects, immediately switch routes to backup
+		a.peers.SetOnReconnect(func(nodeID uint) {
+		// Reset send queue so new WebSocket is used
+		a.router.RemovePeer(nodeID)
+	})
+
 	a.peers.SetOnDisconnect(func(nodeID uint) {
 		// Find alternative routes through remaining peers
 		remainingPeers := a.peers.ListPeers()

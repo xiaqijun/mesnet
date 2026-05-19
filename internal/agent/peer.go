@@ -27,6 +27,7 @@ type PeerManager struct {
 	onHandshake   func(nodeID uint, frame []byte) ([]byte, error)    // called when handshake frame received
 	onProbeResp   func(nodeID uint, seq uint32)                      // called when probe response received
 	onDisconnect  func(nodeID uint)                                  // called when peer disconnects
+	onReconnect   func(nodeID uint)                                  // called when peer reconnects (new WebSocket)
 	mu            sync.RWMutex
 }
 
@@ -65,6 +66,11 @@ func (pm *PeerManager) SetOnProbeResponse(fn func(nodeID uint, seq uint32)) {
 // SetOnDisconnect sets the callback invoked when a peer disconnects.
 func (pm *PeerManager) SetOnDisconnect(fn func(nodeID uint)) {
 	pm.onDisconnect = fn
+}
+
+// SetOnReconnect sets the callback invoked when a peer establishes a new WebSocket.
+func (pm *PeerManager) SetOnReconnect(fn func(nodeID uint)) {
+	pm.onReconnect = fn
 }
 
 func (pm *PeerManager) Listen() (int, error) {
@@ -118,6 +124,9 @@ func (pm *PeerManager) handleIncoming(w http.ResponseWriter, r *http.Request) {
 	pm.mu.Unlock()
 	// Start reader for incoming data + handshake
 	go pm.readLoop(nodeID, conn)
+	if pm.onReconnect != nil {
+		pm.onReconnect(nodeID)
+	}
 }
 
 func (pm *PeerManager) Connect(nodeID uint, addr, token string) error {
