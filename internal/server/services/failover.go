@@ -14,7 +14,7 @@ import (
 // CheckAndFailover periodically checks leaf nodes and switches
 // to a better backbone if the current one fails or has high latency.
 func CheckAndFailover(db *gorm.DB, registry *ws.Registry) {
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
 	highLatencyCount := make(map[uint]int)
@@ -44,13 +44,13 @@ func CheckAndFailover(db *gorm.DB, registry *ws.Registry) {
 
 			if !registry.IsOnline(currentBB) {
 				log.Printf("failover: backbone %d offline for leaf %d, switching", currentBB, leaf.ID)
-				switchBackbone(db, registry, &leaf, currentBB)
+				SwitchBackbone(db, registry, &leaf, currentBB)
 				highLatencyCount[leaf.ID] = 0
 				continue
 			}
 
 			result, err := registry.SendCmd(leaf.ID, "tunnel_test",
-				map[string]any{"node_id": currentBB}, 5*time.Second)
+				map[string]any{"node_id": currentBB}, 2*time.Second)
 			if err != nil {
 				continue
 			}
@@ -66,7 +66,7 @@ func CheckAndFailover(db *gorm.DB, registry *ws.Registry) {
 				highLatencyCount[leaf.ID]++
 				if highLatencyCount[leaf.ID] >= 3 {
 					log.Printf("failover: high latency %.0fms for leaf %d, switching", data.RTTMs, leaf.ID)
-					switchBackbone(db, registry, &leaf, currentBB)
+					SwitchBackbone(db, registry, &leaf, currentBB)
 					highLatencyCount[leaf.ID] = 0
 				}
 			} else {
@@ -76,7 +76,7 @@ func CheckAndFailover(db *gorm.DB, registry *ws.Registry) {
 	}
 }
 
-func switchBackbone(db *gorm.DB, registry *ws.Registry, leaf *models.Node, oldBB uint) {
+func SwitchBackbone(db *gorm.DB, registry *ws.Registry, leaf *models.Node, oldBB uint) {
 	newBB := SelectBestBackbone(db, registry, leaf.ID, oldBB)
 	if newBB == 0 {
 		log.Printf("failover: no alternative backbone for leaf %d", leaf.ID)
@@ -137,7 +137,7 @@ func SelectBestBackbone(db *gorm.DB, registry *ws.Registry, leafID uint, exclude
 	// If leaf is online, ask it to probe. Otherwise fall back to server-side.
 	if leafID > 0 && registry.IsOnline(leafID) {
 		result, err := registry.SendCmd(leafID, "backbone_probe",
-			map[string]any{"addrs": addrs}, 8*time.Second)
+			map[string]any{"addrs": addrs}, 4*time.Second)
 		if err == nil && result.Data != nil {
 			var data struct {
 				Results []struct {

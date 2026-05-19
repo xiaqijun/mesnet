@@ -59,6 +59,22 @@ func main() {
 			for _, id := range registry.ListOnline() {
 				registry.SendCmd(id, "peer_disconnect", map[string]any{"peer_id": nodeID}, 3*time.Second)
 			}
+			// Immediate failover: switch leaves that used this backbone
+			var leaves []models.Node
+			db.Where("backbone = ?", false).Find(&leaves)
+			for _, leaf := range leaves {
+				if !registry.IsOnline(leaf.ID) {
+					continue
+				}
+				var tunnel models.Tunnel
+				if db.Where(
+					"(left_node_id = ? AND right_node_id = ?) OR (left_node_id = ? AND right_node_id = ?)",
+					leaf.ID, nodeID, nodeID, leaf.ID,
+				).First(&tunnel).Error == nil {
+					log.Printf("failover: backbone %d offline, immediately switching leaf %d", nodeID, leaf.ID)
+					services.SwitchBackbone(db, registry, &leaf, nodeID)
+				}
+			}
 		}()
 	})
 
