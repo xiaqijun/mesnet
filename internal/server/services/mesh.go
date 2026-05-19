@@ -77,6 +77,11 @@ func AutoMesh(db *gorm.DB, registry *ws.Registry, nodeID uint) {
 			createBackboneMesh(db, registry, &node, &peer)
 		}
 	} else {
+		// Mark all existing leaf tunnels as down before creating new one
+		db.Model(&models.Tunnel{}).
+			Where("(left_node_id = ? OR right_node_id = ?) AND status = ?", node.ID, node.ID, "up").
+			Update("status", "down")
+
 		bestID := SelectBestBackbone(db, registry, node.ID, 0)
 		if bestID > 0 {
 			var best models.Node
