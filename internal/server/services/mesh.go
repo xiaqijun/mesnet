@@ -46,12 +46,6 @@ func AutoMesh(db *gorm.DB, registry *ws.Registry, nodeID uint) {
 		if best != nil {
 			createLeafTunnel(db, registry, &node, best)
 		}
-		if len(peers) > 1 {
-			second := findSecondBest(peers, best.ID)
-			if second != nil {
-				createLeafTunnel(db, registry, &node, second)
-			}
-		}
 	}
 
 	time.Sleep(4 * time.Second)
@@ -238,7 +232,7 @@ func findBestPeers(db *gorm.DB, registry *ws.Registry, excludeID uint) []models.
 
 func findBestBackbone(nodes []models.Node) *models.Node {
 	for i := range nodes {
-		if nodes[i].Connected {
+		if nodes[i].Backbone {
 			return &nodes[i]
 		}
 	}

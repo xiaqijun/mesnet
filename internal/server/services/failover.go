@@ -3,6 +3,7 @@ package services
 import (
 	"encoding/json"
 	"log"
+	"net"
 	"time"
 
 	"github.com/mesnet/mesnet/internal/server/models"
@@ -16,7 +17,6 @@ func CheckAndFailover(db *gorm.DB, registry *ws.Registry) {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
-	// Track consecutive high-latency samples per leaf
 	highLatencyCount := make(map[uint]int)
 
 	for range ticker.C {
@@ -28,20 +28,12 @@ func CheckAndFailover(db *gorm.DB, registry *ws.Registry) {
 				continue
 			}
 
-			// Find this leaf's current backbone tunnel
 			var tunnel models.Tunnel
 			err := db.Where(
 				"(left_node_id = ? OR right_node_id = ?) AND status = ?",
 				leaf.ID, leaf.ID, "up",
 			).First(&tunnel).Error
 			if err != nil {
-				// No tunnel — create one
-				bestID := SelectBestBackbone(db, registry, 0)
-				if bestID > 0 {
-				var bb models.Node
-				bb.ID = bestID
-				go createLeafTunnel(db, registry, &leaf, &bb)
-			}
 				continue
 			}
 
@@ -50,7 +42,6 @@ func CheckAndFailover(db *gorm.DB, registry *ws.Registry) {
 				currentBB = tunnel.RightNodeID
 			}
 
-			// Check if backbone is online
 			if !registry.IsOnline(currentBB) {
 				log.Printf("failover: backbone %d offline for leaf %d, switching", currentBB, leaf.ID)
 				switchBackbone(db, registry, &leaf, currentBB)
@@ -58,7 +49,6 @@ func CheckAndFailover(db *gorm.DB, registry *ws.Registry) {
 				continue
 			}
 
-			// Check latency via probe result
 			result, err := registry.SendCmd(leaf.ID, "tunnel_test",
 				map[string]any{"node_id": currentBB}, 5*time.Second)
 			if err != nil {
@@ -74,7 +64,7 @@ func CheckAndFailover(db *gorm.DB, registry *ws.Registry) {
 
 			if data.RTTMs > 200 {
 				highLatencyCount[leaf.ID]++
-				if highLatencyCount[leaf.ID] >= 3 { // 30s sustained
+				if highLatencyCount[leaf.ID] >= 3 {
 					log.Printf("failover: high latency %.0fms for leaf %d, switching", data.RTTMs, leaf.ID)
 					switchBackbone(db, registry, &leaf, currentBB)
 					highLatencyCount[leaf.ID] = 0
@@ -87,7 +77,6 @@ func CheckAndFailover(db *gorm.DB, registry *ws.Registry) {
 }
 
 func switchBackbone(db *gorm.DB, registry *ws.Registry, leaf *models.Node, oldBB uint) {
-	// Find best alternative backbone
 	newBB := SelectBestBackbone(db, registry, oldBB)
 	if newBB == 0 {
 		log.Printf("failover: no alternative backbone for leaf %d", leaf.ID)
@@ -99,10 +88,8 @@ func switchBackbone(db *gorm.DB, registry *ws.Registry, leaf *models.Node, oldBB
 		return
 	}
 
-	// Disconnect from old backbone
 	registry.SendCmd(leaf.ID, "peer_disconnect", map[string]any{"peer_id": oldBB}, 3*time.Second)
 
-	// Connect to new backbone
 	registry.SendCmd(newBB, "peer_accept", map[string]any{
 		"node_id": leaf.ID, "token": newBBNode.AgentToken, "public_key": leaf.PublicKey,
 	}, 5*time.Second)
@@ -118,7 +105,6 @@ func switchBackbone(db *gorm.DB, registry *ws.Registry, leaf *models.Node, oldBB
 		return
 	}
 
-	// Mark old tunnel as down
 	db.Model(&models.Tunnel{}).
 		Where("(left_node_id = ? AND right_node_id = ?) OR (left_node_id = ? AND right_node_id = ?)",
 			leaf.ID, oldBB, oldBB, leaf.ID).
@@ -127,20 +113,37 @@ func switchBackbone(db *gorm.DB, registry *ws.Registry, leaf *models.Node, oldBB
 	log.Printf("failover: leaf %d switched backbone %d -> %d", leaf.ID, oldBB, newBB)
 }
 
-// SelectBestBackbone picks the optimal backbone node.
-// excludeID is a backbone to skip (e.g., the current failing one).
+// SelectBestBackbone picks the backbone with the lowest TCP latency.
+// excludeID is a backbone to skip.
 func SelectBestBackbone(db *gorm.DB, registry *ws.Registry, excludeID uint) uint {
 	var backbones []models.Node
 	db.Where("backbone = ? AND id != ?", true, excludeID).Find(&backbones)
 
 	var bestID uint
+	var bestLatency time.Duration = 999 * time.Second
+
 	for _, bb := range backbones {
-		if !registry.IsOnline(bb.ID) {
+		if !registry.IsOnline(bb.ID) || bb.ListenAddr == "" {
 			continue
 		}
-		// Simple: pick first available. TODO: use probe RTT from nearby leaves.
-		bestID = bb.ID
-		break
+		// TCP dial to measure latency (2s timeout)
+		start := time.Now()
+		conn, err := net.DialTimeout("tcp", bb.ListenAddr, 2*time.Second)
+		if err != nil {
+			continue
+		}
+		rtt := time.Since(start)
+		conn.Close()
+
+		if rtt < bestLatency {
+			bestLatency = rtt
+			bestID = bb.ID
+		}
+		log.Printf("backbone %s (%s) latency: %dms", bb.Name, bb.ListenAddr, rtt.Milliseconds())
+	}
+
+	if bestID > 0 {
+		log.Printf("selected backbone %d (latency: %dms)", bestID, bestLatency.Milliseconds())
 	}
 	return bestID
 }
