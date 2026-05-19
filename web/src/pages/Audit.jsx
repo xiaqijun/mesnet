@@ -1,8 +1,9 @@
 import { usePolling } from '../hooks/usePolling'
+import { api } from '../api'
 
 export default function Audit() {
   const { data, loading } = usePolling(() =>
-    fetch('/api/logs').then(r => r.json()), 3000
+    api.req('/logs'), 3000
   )
 
   if (loading) return <div className="text-gray-500 text-sm p-6">加载中...</div>

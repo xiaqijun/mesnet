@@ -21,12 +21,10 @@ export default function NodeDetail() {
   const handleTunnelTest = async (tunnelId, peerId) => {
     setTesting(tunnelId)
     try {
-      const res = await fetch(`/api/nodes/${id}/tunnel-test`, {
+      const json = await api.req(`/nodes/${id}/tunnel-test`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ target_node_id: peerId }),
       })
-      const json = await res.json()
       setTestResults(prev => ({ ...prev, [tunnelId]: { result: json.result, server: json.server, error: json.error } }))
     } catch {
       setTestResults(prev => ({ ...prev, [tunnelId]: { error: '请求失败' } }))

@@ -4,7 +4,7 @@ function getToken() {
   return localStorage.getItem('mesnet_token')
 }
 
-async function req(url, opts = {}) {
+export async function req(url, opts = {}) {
   const headers = { 'Content-Type': 'application/json', ...opts.headers }
   const token = getToken()
   if (token) {
@@ -12,7 +12,6 @@ async function req(url, opts = {}) {
   }
   const res = await fetch(BASE + url, { headers, ...opts })
   if (res.status === 401) {
-    // Token expired or invalid — clear auth and redirect
     localStorage.removeItem('mesnet_token')
     localStorage.removeItem('mesnet_user')
     window.location.href = '/login'
@@ -23,6 +22,8 @@ async function req(url, opts = {}) {
 }
 
 export const api = {
+  req,
+
   // Dashboard
   getStats: () => req('/stats'),
 

@@ -1,6 +1,7 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
+import { api } from '../api'
 
 const nav = [
   { to: '/', label: '仪表盘' },
@@ -16,7 +17,7 @@ export default function Layout() {
   const [ver, setVer] = useState('')
 
   useEffect(() => {
-    fetch('/api/agents/versions').then(r => r.json()).then(d => setVer(d.server_version || ''))
+    api.req('/agents/versions').then(d => setVer(d.server_version || '')).catch(() => {})
   }, [])
 
   const handleLogout = () => {

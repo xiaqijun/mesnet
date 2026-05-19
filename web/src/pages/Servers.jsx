@@ -1,38 +1,29 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { usePolling } from '../hooks/usePolling'
+import { api, req } from '../api'
 import StatusBadge from '../components/StatusBadge'
 import DeployModal from '../components/DeployModal'
 
 export default function Servers() {
-  const { data, loading } = usePolling(() => fetchServers(), 3000)
+  const { data, loading } = usePolling(() => api.req('/servers'), 3000)
   const [deployScript, setDeployScript] = useState('')
   const [showDeploy, setShowDeploy] = useState(false)
   const [sshResult, setSshResult] = useState(null)
   const [sshTest, setSshTest] = useState(null)
   const [latestVer, setLatestVer] = useState('')
-  useEffect(() => { fetch('/api/agents/versions').then(r => r.json()).then(d => setLatestVer(d.latest_version || d.server_version || '')) }, [])
+  useEffect(() => { api.req('/agents/versions').then(d => setLatestVer(d.latest_version || d.server_version || '')).catch(() => {}) }, [])
   const [showAddCloud, setShowAddCloud] = useState(false)
   const [showAddLeaf, setShowAddLeaf] = useState(false)
-  const [selectedBackbone, setSelectedBackbone] = useState(null)
   const [cloudForm, setCloudForm] = useState({ name: '', host: '', subnets: '', listen_addr: '', username: 'root', password: '', auth_type: 'password', auto_deploy: true })
   const [leafForm, setLeafForm] = useState({ name: '', subnets: '' })
 
-  async function fetchServers() {
-    try {
-      const res = await fetch('/api/servers')
-      return res.json()
-    } catch { return { cloud_servers: [], leaf_nodes: [] } }
-  }
-
   const handleAddCloud = async (e) => {
     e.preventDefault()
-    const res = await fetch('/api/servers/cloud', {
+    const data = await req('/servers/cloud', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(cloudForm),
-    })
-    const data = await res.json()
+    }).catch(e => ({ error: e.message }))
 
     if (data.ssh_test || data.ssh_error) {
       setSshResult({
@@ -55,12 +46,10 @@ export default function Servers() {
 
   const handleAddLeaf = async (e) => {
     e.preventDefault()
-    const res = await fetch('/api/servers/leaf', {
+    const data = await req('/servers/leaf', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(leafForm),
-    })
-    const data = await res.json()
+    }).catch(e => ({ error: e.message }))
     if (data.node) {
       setDeployScript(data.script)
       setShowDeploy(true)
@@ -71,10 +60,10 @@ export default function Servers() {
 
   const handleDelete = async (id) => {
     if (!confirm('确定删除此节点？关联隧道也会被删除。')) return
-    await fetch(`/api/nodes/${id}`, { method: 'DELETE' })
+    await api.deleteNode(id)
   }
 
-  const [deployModal, setDeployModal] = useState(null) // { id, host, creds }
+  const [deployModal, setDeployModal] = useState(null)
   const [deployUser, setDeployUser] = useState('root')
   const [deployPass, setDeployPass] = useState('')
   const [deployErr, setDeployErr] = useState('')
@@ -98,12 +87,10 @@ export default function Servers() {
   const tryAutoDeploy = async (id, host, username, password) => {
     setDeploying(true)
     setDeployErr('')
-    const res = await fetch(`/api/servers/${id}/auto-deploy`, {
+    const data = await req(`/servers/${id}/auto-deploy`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ host, username, password }),
-    })
-    const data = await res.json()
+    }).catch(e => ({ error: e.message }))
     setDeploying(false)
     if (data.deployed) {
       localStorage.setItem('meshnet_ssh_' + host, JSON.stringify({ username, password }))
@@ -116,26 +103,23 @@ export default function Servers() {
 
   const handleUpdate = async (id, ver) => {
     if (ver === latestVer) { alert('已是最新版本'); return }
-    const res = await fetch('/api/agents/update', {
+    const data = await req('/agents/update', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ node_id: id }),
-    })
-    const data = await res.json()
+    }).catch(e => ({ error: e.message }))
     if (data.error) alert('更新失败: ' + data.error)
     else alert('更新指令已发送，Agent 将自动更新并重启')
   }
 
   const handleUpdateAll = async () => {
     if (!confirm('确定更新所有在线 Agent？')) return
-    const res = await fetch('/api/agents/update-all', { method: 'POST' })
-    const data = await res.json()
+    const data = await req('/agents/update-all', { method: 'POST' })
     alert(`已触发 ${data.updated} 个 Agent 更新`)
   }
 
   const handleServerUpdate = async () => {
     if (!confirm('确定更新控制端服务器？服务会短暂中断。')) return
-    await fetch('/api/server/update', { method: 'POST' })
+    await req('/server/update', { method: 'POST' })
     alert('服务端更新中，稍后刷新页面...')
   }
 
@@ -183,11 +167,10 @@ export default function Servers() {
           <div className="col-span-2 flex items-center gap-2">
             <button type="button" onClick={async () => {
               setSshTest({ testing: true })
-              const res = await fetch('/api/servers/test-ssh', {
+              const d = await req('/servers/test-ssh', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ host: cloudForm.host, username: cloudForm.username, password: cloudForm.password }),
               })
-              const d = await res.json()
               setSshTest({ testing: false, ok: d.ok, output: d.output, error: d.error })
             }} className="px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-200 rounded">检测连接</button>
             {sshTest && !sshTest.testing && (
