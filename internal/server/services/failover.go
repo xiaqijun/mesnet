@@ -7,6 +7,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/mesnet/mesnet/internal/server/logwatch"
 	"github.com/mesnet/mesnet/internal/server/models"
 	"github.com/mesnet/mesnet/internal/server/ws"
 	"gorm.io/gorm"
@@ -48,7 +49,7 @@ func CheckAndFailover(db *gorm.DB, registry *ws.Registry) {
 			}
 
 			if !registry.IsOnline(currentBB) {
-				log.Printf("failover: backbone %d offline for leaf %d, switching", currentBB, leaf.ID)
+				logwatch.Warn("failover", fmt.Sprintf("backbone %d offline for leaf %d, switching", currentBB, leaf.ID))
 				SwitchBackbone(db, registry, &leaf, currentBB)
 				highLatencyCount[leaf.ID] = 0
 				continue
@@ -70,7 +71,7 @@ func CheckAndFailover(db *gorm.DB, registry *ws.Registry) {
 			if data.RTTMs > 200 {
 				highLatencyCount[leaf.ID]++
 				if highLatencyCount[leaf.ID] >= 3 {
-					log.Printf("failover: high latency %.0fms for leaf %d, switching", data.RTTMs, leaf.ID)
+					logwatch.Warn("failover", fmt.Sprintf("high latency %.0fms for leaf %d, switching", data.RTTMs, leaf.ID))
 					SwitchBackbone(db, registry, &leaf, currentBB)
 					highLatencyCount[leaf.ID] = 0
 				}
@@ -106,7 +107,7 @@ func SwitchBackbone(db *gorm.DB, registry *ws.Registry, leaf *models.Node, oldBB
 
 	newBB := SelectBestBackbone(db, registry, leaf.ID, oldBB)
 	if newBB == 0 {
-		log.Printf("failover: no alternative backbone for leaf %d", leaf.ID)
+		logwatch.Warn("failover", fmt.Sprintf("no alternative backbone for leaf %d", leaf.ID))
 		return
 	}
 
@@ -171,7 +172,7 @@ func SwitchBackbone(db *gorm.DB, registry *ws.Registry, leaf *models.Node, oldBB
 			leaf.ID, leaf.ID, "down").
 			Delete(&models.Tunnel{})
 
-	log.Printf("failover: leaf %d switched backbone %d -> %d", leaf.ID, oldBB, newBB)
+	logwatch.Info("failover", fmt.Sprintf("leaf %d switched backbone %d -> %d", leaf.ID, oldBB, newBB))
 }
 
 // SelectBestBackbone asks the leaf agent to probe all backbones and

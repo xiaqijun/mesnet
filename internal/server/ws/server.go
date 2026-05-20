@@ -86,7 +86,7 @@ func (r *Registry) Register(nodeID uint, ac *AgentConn) {
 	}
 	r.conns[nodeID] = ac
 	r.mu.Unlock()
-	log.Printf("agent registered: node=%d name=%s", nodeID, ac.NodeName)
+	logwatch.Debug("registry", fmt.Sprintf("agent registered node=%d name=%s", nodeID, ac.NodeName))
 }
 
 func (r *Registry) Unregister(nodeID uint, ac *AgentConn) {
@@ -99,7 +99,7 @@ func (r *Registry) Unregister(nodeID uint, ac *AgentConn) {
 	}
 	r.mu.Unlock()
 	if removed {
-		log.Printf("agent unregistered: node=%d", nodeID)
+		logwatch.Debug("registry", fmt.Sprintf("agent unregistered node=%d", nodeID))
 	} else {
 		return // old connection replaced by newer one, skip onUnregister
 	}

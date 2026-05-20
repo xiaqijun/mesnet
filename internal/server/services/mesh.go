@@ -80,6 +80,7 @@ func AutoMesh(db *gorm.DB, registry *ws.Registry, nodeID uint) {
 		DetectAndSaveSubnets(db, registry, &node)
 	}
 
+	logwatch.Info("mesh", fmt.Sprintf("AutoMesh %s (id=%d) starting", node.Name, node.ID))
 	peers := findBestPeers(db, registry, nodeID)
 	if len(peers) == 0 {
 		log.Printf("mesh: no peers for %s", node.Name)

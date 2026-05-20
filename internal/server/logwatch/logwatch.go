@@ -18,8 +18,9 @@ type Buffer struct {
 	cap     int
 }
 
-var global = &Buffer{cap: 200, entries: make([]Entry, 0, 200)}
+var global = &Buffer{cap: 2000, entries: make([]Entry, 0, 2000)}
 
+func Debug(source, msg string) { global.add("DEBUG", source, msg) }
 func Info(source, msg string)  { global.add("INFO", source, msg) }
 func Error(source, msg string) { global.add("ERROR", source, msg) }
 func Warn(source, msg string)  { global.add("WARN", source, msg) }
@@ -33,7 +34,7 @@ func (b *Buffer) add(level, source, msg string) {
 	b.entries = append(b.entries, Entry{Time: time.Now(), Level: level, Source: source, Message: msg})
 }
 
-func GetLogs(since time.Time, level string) []Entry {
+func GetLogs(since time.Time, level, source string, limit int) []Entry {
 	global.mu.RLock()
 	defer global.mu.RUnlock()
 	var result []Entry
@@ -44,7 +45,13 @@ func GetLogs(since time.Time, level string) []Entry {
 		if level != "" && e.Level != level {
 			continue
 		}
+		if source != "" && e.Source != source {
+			continue
+		}
 		result = append(result, e)
+		if limit > 0 && len(result) >= limit {
+			break
+		}
 	}
 	return result
 }

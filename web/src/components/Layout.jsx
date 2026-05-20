@@ -9,6 +9,7 @@ const nav = [
   { to: '/tunnels', label: '隧道' },
   { to: '/topology', label: '拓扑' },
   { to: '/monitor', label: '流量监控' },
+  { to: '/audit', label: '日志' },
 ]
 
 export default function Layout() {
