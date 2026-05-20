@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"io"
+	"os"
 	"sort"
 	"sync/atomic"
 
@@ -36,6 +37,28 @@ func GenerateKeyPair() (*KeyPair, error) {
 		return nil, err
 	}
 	return &KeyPair{PrivateKey: priv, PublicKey: pub}, nil
+}
+
+// LoadOrGenerateKeyPair loads a keypair from file, or generates and saves it.
+func LoadOrGenerateKeyPair(keyPath string) (*KeyPair, error) {
+	data, err := os.ReadFile(keyPath)
+	if err == nil && len(data) == 64 {
+		priv := data[:32]
+		pub := data[32:]
+		return &KeyPair{PrivateKey: priv, PublicKey: pub}, nil
+	}
+
+	kp, err := GenerateKeyPair()
+	if err != nil {
+		return nil, err
+	}
+
+	// Save to file (ignoring errors — ephemeral key is OK)
+	saved := append([]byte{}, kp.PrivateKey...)
+	saved = append(saved, kp.PublicKey...)
+	os.WriteFile(keyPath, saved, 0600)
+
+	return kp, nil
 }
 
 // SecureChannel implements an encrypted session between two agents.

@@ -52,15 +52,17 @@ func New(name, serverURL, listenAddr string, backbone bool) *Agent {
 		Token:      token,
 	}
 
-	var kp *KeyPair
-	for {
-		var err error
-		kp, err = GenerateKeyPair()
-		if err == nil {
-			break
+	kp, err := LoadOrGenerateKeyPair("/etc/mesnet/agent.key")
+	if err != nil {
+		log.Printf("WARNING: keypair load failed: %v, generating ephemeral key", err)
+		for {
+			kp, err = GenerateKeyPair()
+			if err == nil {
+				break
+			}
+			log.Printf("WARNING: keypair generation failed: %v, retrying in 3s...", err)
+			time.Sleep(3 * time.Second)
 		}
-		log.Printf("WARNING: keypair generation failed: %v, retrying in 3s...", err)
-		time.Sleep(3 * time.Second)
 	}
 
 	a := &Agent{
