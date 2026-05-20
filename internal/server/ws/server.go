@@ -281,7 +281,7 @@ func HandleAgent(w http.ResponseWriter, r *http.Request, registry *Registry, db 
 				if hello.Version != "" {
 					db.Table("nodes").Where("id = ?", n.ID).Update("agent_version", hello.Version)
 					if hello.PublicKey != "" {
-					db.Table("nodes").Where("id = ?", n.ID).Update("public_key", hello.PublicKey)
+						db.Table("nodes").Where("id = ?", n.ID).Update("public_key", hello.PublicKey)
 						log.Printf("agent %d public_key stored (len=%d)", n.ID, len(hello.PublicKey))
 					} else {
 						log.Printf("WARNING: agent %d sent empty public_key", n.ID)
@@ -295,7 +295,7 @@ func HandleAgent(w http.ResponseWriter, r *http.Request, registry *Registry, db 
 					}
 				// Auto-update agent if server version > agent version
 				serverVer := version.Current
-				if hello.Version != "" && hello.Version != serverVer {
+				if hello.Version != "" && isOlderVersion(hello.Version, serverVer) {
 					log.Printf("agent %d version %s != server %s, triggering update", n.ID, hello.Version, serverVer)
 					go func() {
 						ac.SendJSON(Message{Type: "cmd", ID: "auto_update", Action: "agent_update"})
@@ -318,4 +318,39 @@ func HandleAgent(w http.ResponseWriter, r *http.Request, registry *Registry, db 
 
 func splitPath(path string) []string {
 	return strings.FieldsFunc(path, func(r rune) bool { return r == '/' })
+}
+
+
+// isOlderVersion compares semantic version strings (e.g. "v1.0.96", "1.0.96").
+// Returns true if a < b.
+func isOlderVersion(a, b string) bool {
+	strip := func(v string) string {
+		if len(v) > 0 && v[0] == 'v' {
+			return v[1:]
+		}
+		return v
+	}
+	va, vb := strip(a), strip(b)
+	if va == vb {
+		return false
+	}
+	// Simple comparison by splitting on "."
+	pa, pb := 0, 0
+	for pa < len(va) || pb < len(vb) {
+		na, nb := 0, 0
+		for pa < len(va) && va[pa] != '.' {
+			na = na*10 + int(va[pa]-'0')
+			pa++
+		}
+		pa++ // skip .
+		for pb < len(vb) && vb[pb] != '.' {
+			nb = nb*10 + int(vb[pb]-'0')
+			pb++
+		}
+		pb++ // skip .
+		if na != nb {
+			return na < nb
+		}
+	}
+	return false
 }
