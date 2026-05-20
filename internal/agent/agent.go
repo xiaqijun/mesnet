@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net"
 	"sync"
@@ -245,6 +246,19 @@ func (a *Agent) PublicKeyHex() string {
 	return hexEncode(a.keyPair.PublicKey)
 }
 
+func (a *Agent) reportLog(level, source, msg string) {
+	if a.ws == nil || !a.ws.IsConnected() {
+		return
+	}
+	a.ws.SendJSON(map[string]any{
+		"type": "log",
+		"data": map[string]any{
+			"level":   level,
+			"source":  source,
+			"message": msg,
+		},
+	})
+}
 func (a *Agent) HandleCommand(action string, args json.RawMessage) (any, error) {
 	switch action {
 	case "tun_setup":
@@ -328,7 +342,8 @@ func (a *Agent) HandleCommand(action string, args json.RawMessage) (any, error) 
 		}
 
 		// Send init handshake frame (contains our ephemeral public key)
-		a.peers.SendRaw(params.NodeID, initFrame)
+		a.reportLog("INFO", "mesh", fmt.Sprintf("peer_connect to %d via %s", params.NodeID, params.PeerAddr))
+			a.peers.SendRaw(params.NodeID, initFrame)
 		return nil, nil
 
 		case "peer_accept":
@@ -350,7 +365,8 @@ func (a *Agent) HandleCommand(action string, args json.RawMessage) (any, error) 
 			}
 
 			// Register expected incoming connection (peer dials us with this token)
-			a.peers.ExpectConnection(params.Token, params.NodeID)
+			a.reportLog("INFO", "mesh", fmt.Sprintf("peer_accept from %d", params.NodeID))
+				a.peers.ExpectConnection(params.Token, params.NodeID)
 			return nil, nil
 
 		case "peer_disconnect":

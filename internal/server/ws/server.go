@@ -318,6 +318,22 @@ func HandleAgent(w http.ResponseWriter, r *http.Request, registry *Registry, db 
 			if registry.onRecv != nil {
 				registry.onRecv(ac, msg)
 			}
+		case "log":
+			var logEntry struct {
+				Level   string `json:"level"`
+				Source  string `json:"source"`
+				Message string `json:"message"`
+			}
+			if json.Unmarshal(msg.Data, &logEntry) == nil && logEntry.Message != "" {
+				switch logEntry.Level {
+				case "ERROR":
+					logwatch.Error(logEntry.Source, logEntry.Message)
+				case "WARN":
+					logwatch.Warn(logEntry.Source, logEntry.Message)
+				default:
+					logwatch.Info(logEntry.Source, logEntry.Message)
+				}
+			}
 		}
 	}
 }

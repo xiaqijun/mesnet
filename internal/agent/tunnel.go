@@ -2,6 +2,7 @@ package agent
 
 import (
 	"log"
+	"fmt"
 	"time"
 )
 
@@ -92,7 +93,7 @@ func (t *Tunnel) Run() {
 			dstIP := extractDstIP(packet)
 			nodeID, nextHop := t.agent.routes.Lookup(dstIP)
 			if nextHop == 0 {
-				log.Printf("tunnel: no route for dst=%s nodeID=%d", dstIP, nodeID)
+				t.agent.reportLog("WARN", "tunnel", fmt.Sprintf("no route for dst=%s nodeID=%d", dstIP, nodeID))
 				continue
 			}
 
