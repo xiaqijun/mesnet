@@ -80,14 +80,21 @@ func (r *Registry) SetOnUnregister(fn func(nodeID uint)) {
 
 func (r *Registry) Register(nodeID uint, ac *AgentConn) {
 	r.mu.Lock()
+	// Close old connection if exists, so its deferred Unregister runs BEFORE onHello
+	if old, ok := r.conns[nodeID]; ok && old.WS != ac.WS {
+		old.WS.Close()
+	}
 	r.conns[nodeID] = ac
 	r.mu.Unlock()
 	log.Printf("agent registered: node=%d name=%s", nodeID, ac.NodeName)
 }
 
-func (r *Registry) Unregister(nodeID uint) {
+func (r *Registry) Unregister(nodeID uint, ac *AgentConn) {
 	r.mu.Lock()
-	delete(r.conns, nodeID)
+	// Only remove if this exact AgentConn is still registered (not replaced by a newer connection)
+	if current, ok := r.conns[nodeID]; ok && current == ac {
+		delete(r.conns, nodeID)
+	}
 	r.mu.Unlock()
 	log.Printf("agent unregistered: node=%d", nodeID)
 	if r.onUnregister != nil {
@@ -227,7 +234,7 @@ func HandleAgent(w http.ResponseWriter, r *http.Request, registry *Registry, db 
 	registry.Register(n.ID, ac)
 	logwatch.Info("agent", fmt.Sprintf("node %d (%s) connected from %s", n.ID, n.Name, remoteIP))
 	defer func() {
-		registry.Unregister(n.ID)
+		registry.Unregister(n.ID, ac)
 		ws.Close()
 		db.Table("nodes").Where("id = ?", n.ID).Updates(map[string]any{
 			"connected": false,
