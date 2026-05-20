@@ -92,11 +92,17 @@ func (r *Registry) Register(nodeID uint, ac *AgentConn) {
 func (r *Registry) Unregister(nodeID uint, ac *AgentConn) {
 	r.mu.Lock()
 	// Only remove if this exact AgentConn is still registered (not replaced by a newer connection)
+	removed := false
 	if current, ok := r.conns[nodeID]; ok && current == ac {
 		delete(r.conns, nodeID)
+		removed = true
 	}
 	r.mu.Unlock()
-	log.Printf("agent unregistered: node=%d", nodeID)
+	if removed {
+		log.Printf("agent unregistered: node=%d", nodeID)
+	} else {
+		return // old connection replaced by newer one, skip onUnregister
+	}
 	if r.onUnregister != nil {
 		go r.onUnregister(nodeID)
 	}
