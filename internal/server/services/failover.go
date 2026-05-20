@@ -94,6 +94,16 @@ func CheckAndFailover(db *gorm.DB, registry *ws.Registry) {
 }
 
 func SwitchBackbone(db *gorm.DB, registry *ws.Registry, leaf *models.Node, oldBB uint) {
+	// Skip if another tunnel already exists (e.g., created by concurrent AutoMesh)
+	var alreadyUp models.Tunnel
+	if db.Where(
+		"(left_node_id = ? OR right_node_id = ?) AND status = ?",
+		leaf.ID, leaf.ID, "up",
+	).First(&alreadyUp).Error == nil {
+		log.Printf("failover: leaf %d already has up tunnel %d, skipping SwitchBackbone", leaf.ID, alreadyUp.ID)
+		return
+	}
+
 	newBB := SelectBestBackbone(db, registry, leaf.ID, oldBB)
 	if newBB == 0 {
 		log.Printf("failover: no alternative backbone for leaf %d", leaf.ID)

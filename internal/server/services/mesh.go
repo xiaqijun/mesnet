@@ -203,6 +203,16 @@ func splitSubnets(s string) []string {
 }
 
 func createLeafTunnel(db *gorm.DB, registry *ws.Registry, leaf, backbone *models.Node) {
+	// Safety: skip if leaf already has any up tunnel (prevents AutoMesh/SwitchBackbone race)
+	var anyUp models.Tunnel
+	if db.Where(
+		"(left_node_id = ? OR right_node_id = ?) AND status = ?",
+		leaf.ID, leaf.ID, "up",
+	).First(&anyUp).Error == nil {
+		log.Printf("mesh: leaf %s already has up tunnel %d, skipping createLeafTunnel", leaf.Name, anyUp.ID)
+		return
+	}
+
 	var existing models.Tunnel
 	err := db.Where(
 		"(left_node_id = ? AND right_node_id = ?) OR (left_node_id = ? AND right_node_id = ?)",
