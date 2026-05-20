@@ -106,9 +106,20 @@ func AutoMesh(db *gorm.DB, registry *ws.Registry, nodeID uint) {
 					createLeafTunnel(db, registry, &node, &best)
 				}
 			}
+		} else {
+			// Leaf already has a tunnel — clean up any extras
+			var count int64
+			db.Model(&models.Tunnel{}).
+				Where("(left_node_id = ? OR right_node_id = ?) AND status = ?",
+					node.ID, node.ID, "up").Count(&count)
+			if count > 1 {
+				log.Printf("mesh: leaf %s has %d up tunnels, cleaning extras", node.Name, count)
+				db.Where("(left_node_id = ? OR right_node_id = ?) AND status = ? AND id != ?",
+					node.ID, node.ID, "up", existingTunnel.ID).
+					Update("status", "down")
+			}
 		}
 	}
-
 	time.Sleep(4 * time.Second)
 	syncAllRoutes(db, registry)
 }
