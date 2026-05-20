@@ -249,7 +249,7 @@ func createLeafTunnel(db *gorm.DB, registry *ws.Registry, leaf, backbone *models
 		RightNodeID: backbone.ID,
 		LeftSubnet:  leaf.Subnets,
 		RightSubnet: backbone.Subnets,
-		Status:      "up",
+			Status:      "up",
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 	}
@@ -275,6 +275,7 @@ func createLeafTunnel(db *gorm.DB, registry *ws.Registry, leaf, backbone *models
 		}, 10*time.Second)
 		if err != nil {
 			logwatch.Warn("mesh", fmt.Sprintf("leaf peer_connect failed %s->%s: %v", leaf.Name, backbone.Name, err))
+				db.Model(&models.Tunnel{}).Where("id = ?", tunnel.ID).Update("status", "down")
 			return
 		}
 
