@@ -91,6 +91,17 @@ func AutoMesh(db *gorm.DB, registry *ws.Registry, nodeID uint) {
 		for _, peer := range peers {
 			createBackboneMesh(db, registry, &node, &peer)
 		}
+		// Clean up orphaned backbone tunnels (peers beyond maxMeshPeers)
+		var totalBB int64
+		db.Model(&models.Tunnel{}).
+			Where("(left_node_id = ? OR right_node_id = ?) AND status = ?",
+				node.ID, node.ID, "up").Count(&totalBB)
+		if totalBB > maxMeshPeers {
+			log.Printf("mesh: backbone %s has %d up tunnels, expected %d, cleaning extras", node.Name, totalBB, maxMeshPeers)
+			db.Where("(left_node_id = ? OR right_node_id = ?) AND status = ? AND id NOT IN (SELECT id FROM (SELECT id FROM tunnels WHERE (left_node_id = ? OR right_node_id = ?) AND status = ? ORDER BY id DESC LIMIT ?) AS keep)",
+				node.ID, node.ID, "up", node.ID, node.ID, "up", maxMeshPeers).
+				Update("status", "down")
+		}
 	} else {
 		// Check if leaf already has an active tunnel
 		var existingTunnel models.Tunnel
